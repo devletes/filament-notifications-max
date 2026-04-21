@@ -1,0 +1,66 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * Persisted composition record for admin-authored broadcasts.
+ *
+ * One row = one composed broadcast. Delivery is handled by
+ * {@see \Devletes\NotificationsMax\Jobs\SendBroadcastJob}, which resolves
+ * the `audience` payload through the bound BroadcastAudienceResolver and
+ * fans out one `broadcast.admin_custom` notification per matched recipient.
+ *
+ * `scheduled_at` enables deferred delivery via Laravel's `->delay()`; null
+ * means "send immediately on creation". `sent_at` + `recipients_count`
+ * are stamped by the job after successful fan-out.
+ *
+ * tenant_id is nullable — single-tenant installs never populate it. Multi-
+ * tenant installs rely on it to scope both the admin list view and the
+ * audience matcher.
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('broadcast_notifications', function (Blueprint $table) {
+            $table->uuid('id')->primary();
+            $table->unsignedBigInteger('tenant_id')->nullable();
+            $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
+
+            $table->string('subject');
+            $table->text('body');
+
+            // Delivery channels — subset of the `broadcast.admin_custom` type's
+            // `allowed_channels`. Stored as JSON so adding new channels in the
+            // future (push, sms, etc.) doesn't require a schema change.
+            $table->json('channels');
+
+            // Audience payload — shape is defined by the bound
+            // BroadcastAudienceResolver. Default role-based impl stores
+            // `{"role_ids": [...]}`; host apps with custom resolvers persist
+            // whatever their matcher understands.
+            $table->json('audience');
+
+            $table->string('icon')->nullable();
+            $table->string('color')->nullable();
+            $table->string('action_url')->nullable();
+            $table->string('action_label')->nullable();
+
+            $table->timestamp('scheduled_at')->nullable();
+            $table->timestamp('sent_at')->nullable();
+            $table->unsignedInteger('recipients_count')->nullable();
+
+            $table->timestamps();
+
+            $table->index(['tenant_id', 'scheduled_at'], 'bnf_tenant_scheduled_idx');
+            $table->index(['tenant_id', 'sent_at'], 'bnf_tenant_sent_idx');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('broadcast_notifications');
+    }
+};
