@@ -3,20 +3,13 @@
 namespace Devletes\NotificationsMax;
 
 use Devletes\NotificationsMax\Contracts\ActionUrlBuilder;
-use Devletes\NotificationsMax\Contracts\AdminRoleResolver;
-use Devletes\NotificationsMax\Contracts\AudienceResolver;
-use Devletes\NotificationsMax\Contracts\AuthorizedBroadcaster;
 use Devletes\NotificationsMax\Contracts\BroadcastAudienceResolver;
+use Devletes\NotificationsMax\Contracts\BroadcastReleasePipeline;
 use Devletes\NotificationsMax\Contracts\PreferenceResolver;
 use Devletes\NotificationsMax\Contracts\TenantResolver;
-use Devletes\NotificationsMax\Defaults\DefaultAuthorizedBroadcaster;
-use Devletes\NotificationsMax\Defaults\EloquentPreferenceResolver;
-use Devletes\NotificationsMax\Defaults\NullTenantResolver;
+use Devletes\NotificationsMax\Defaults\ImmediateBroadcastReleasePipeline;
 use Devletes\NotificationsMax\Defaults\PathActionUrlBuilder;
-use Devletes\NotificationsMax\Defaults\RoleBasedBroadcastAudienceResolver;
-use Devletes\NotificationsMax\Defaults\SpatieAdminRoleResolver;
 use Devletes\NotificationsMax\Defaults\SubdomainActionUrlBuilder;
-use Devletes\NotificationsMax\Defaults\UserRoleAudienceResolver;
 use Devletes\NotificationsMax\Listeners\FireDatabaseNotificationsSent;
 use Devletes\NotificationsMax\Models\BroadcastNotification;
 use Devletes\NotificationsMax\Observers\NotificationTenantObserver;
@@ -45,33 +38,62 @@ class NotificationsMaxServiceProvider extends PackageServiceProvider
             ->hasMigrations([
                 'create_user_notification_preferences_table',
                 'create_broadcast_notifications_table',
-            ]);
+                'add_status_to_broadcast_notifications_table',
+                'convert_broadcast_notifications_to_int_pk',
+                'create_notification_type_overrides_table',
+            ])
+            ->hasCommand(\Devletes\NotificationsMax\Console\SeedContentCommand::class);
     }
 
     public function packageRegistered(): void
     {
+        // Deep-merge the host's published config onto the package defaults.
+        // Spatie's default `mergeConfigFrom` is a shallow merge — a host that
+        // publishes the config file and only overrides `broadcaster.permission`
+        // would otherwise lose the shipped `broadcaster.statuses`, etc.
+        // array_replace_recursive lets the host override individual nested
+        // keys without having to re-declare every package default.
+        $packageDefaults = require __DIR__ . '/../config/notifications-max.php';
+        $merged = array_replace_recursive($packageDefaults, config('notifications-max', []));
+        config(['notifications-max' => $merged]);
+
         // Type registry is a singleton — it caches parsed NotificationType
         // value objects for the request lifetime.
         $this->app->singleton(NotificationTypeRegistry::class);
 
-        // Contract → default-implementation bindings. Consumers replace any
-        // of these in their own AppServiceProvider::register() without
-        // touching the package.
-        //
-        // Host apps with Filament's subdomain-tenancy get SubdomainActionUrlBuilder
-        // as a sensible default; single-tenant or path-tenancy apps rebind
-        // to PathActionUrlBuilder (also shipped).
-        $this->app->bind(ActionUrlBuilder::class, SubdomainActionUrlBuilder::class);
-        $this->app->bind(AdminRoleResolver::class, SpatieAdminRoleResolver::class);
-        $this->app->bind(AudienceResolver::class, UserRoleAudienceResolver::class);
-        $this->app->bind(AuthorizedBroadcaster::class, DefaultAuthorizedBroadcaster::class);
-        $this->app->bind(BroadcastAudienceResolver::class, RoleBasedBroadcastAudienceResolver::class);
-        $this->app->bind(PreferenceResolver::class, EloquentPreferenceResolver::class);
-        $this->app->bind(TenantResolver::class, NullTenantResolver::class);
+        // Contract → implementation wiring is config-driven (see
+        // `notifications-max.resolvers` and `notifications-max.broadcaster`).
+        // `bindIf` means any manual `app()->bind()` in a host
+        // `AppServiceProvider::register()` wins over the config — useful
+        // for tests and one-off container overrides.
+        $this->bindFromConfig(TenantResolver::class, 'notifications-max.resolvers.tenant');
+        $this->bindFromConfig(ActionUrlBuilder::class, 'notifications-max.resolvers.action_url');
+        $this->bindFromConfig(PreferenceResolver::class, 'notifications-max.resolvers.preference');
 
-        // Keep path-builder directly resolvable so SubdomainActionUrlBuilder
-        // can delegate to it for fallback cases.
+        $this->bindFromConfig(BroadcastAudienceResolver::class, 'notifications-max.broadcaster.audience_resolver');
+        $this->bindFromConfig(BroadcastReleasePipeline::class, 'notifications-max.broadcaster.release_pipeline');
+
+        // Keep both URL builders directly resolvable so host apps that
+        // compose them (e.g. subdomain builder delegating to path builder
+        // for fallback) can fetch either without rebinding.
         $this->app->bind(PathActionUrlBuilder::class, PathActionUrlBuilder::class);
+        $this->app->bind(SubdomainActionUrlBuilder::class, SubdomainActionUrlBuilder::class);
+    }
+
+    /**
+     * Bind an abstract to the concrete class named at a config key. No-op
+     * when the config key is missing or empty, or when the concrete class
+     * doesn't exist — guards against typos and half-migrated configs.
+     */
+    protected function bindFromConfig(string $abstract, string $configKey): void
+    {
+        $concrete = config($configKey);
+
+        if (! is_string($concrete) || $concrete === '' || ! class_exists($concrete)) {
+            return;
+        }
+
+        $this->app->bindIf($abstract, $concrete);
     }
 
     public function packageBooted(): void
@@ -117,26 +139,20 @@ class NotificationsMaxServiceProvider extends PackageServiceProvider
     /**
      * Reserve the `broadcast.admin_custom` type key in the registry so the
      * dispatcher and preference resolver can route admin broadcasts even
-     * before the host app adds its own config entry. Uses the runtime
-     * registration API so this layers cleanly with any config-defined types.
+     * before the host app adds its own config entry.
      *
-     * Host apps can still override this entry by defining their own
-     * `broadcast.admin_custom` in config — config-side definitions take
-     * precedence over the package's runtime baseline because they're
-     * loaded first by {@see NotificationTypeRegistry::all()} (runtime
-     * entries only override what's not already there during warmup; that
-     * ordering is intentional to let hosts customize text, icon, colour,
-     * and channel defaults without touching the package).
-     *
-     * NOTE: the registry currently has runtime entries WIN over config;
-     * if you want the opposite for this specific reserved key, check
-     * `has()` before registering.
+     * The registry's general rule is runtime-registrations-win-over-config
+     * (see {@see NotificationTypeRegistry::all()}). For THIS specific
+     * reserved key we voluntarily yield to any config-defined entry via
+     * the `has()` guard below — so host apps can override the package's
+     * default label / icon / channels by adding their own
+     * `broadcast.admin_custom` entry to `config/notifications.php`.
      */
     protected function registerBroadcastAdminCustomType(): void
     {
         $registry = $this->app->make(NotificationTypeRegistry::class);
 
-        // Let host apps override the defaults via their own config entry.
+        // Config-defined entry wins over our default — skip registration.
         if ($registry->has('broadcast.admin_custom')) {
             return;
         }
@@ -148,7 +164,9 @@ class NotificationsMaxServiceProvider extends PackageServiceProvider
             'title' => '{subject}',
             'body' => '{body}',
             'icon' => 'heroicon-o-megaphone',
-            'color' => 'info',
+            // Primary accent so admin announcements visually stand out from
+            // the neutral-styled approval notifications.
+            'color' => 'primary',
             'default_channels' => ['push'],
             'allowed_channels' => ['push', 'email'],
             'mandatory' => false,

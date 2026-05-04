@@ -10,20 +10,20 @@ use Devletes\NotificationsMax\Contracts\TenantResolver;
 use Devletes\NotificationsMax\Filament\Resources\BroadcastNotifications\Pages\CreateBroadcastNotification;
 use Devletes\NotificationsMax\Filament\Resources\BroadcastNotifications\Pages\EditBroadcastNotification;
 use Devletes\NotificationsMax\Filament\Resources\BroadcastNotifications\Pages\ListBroadcastNotifications;
+use Devletes\NotificationsMax\Filament\Resources\BroadcastNotifications\Pages\ViewBroadcastNotification;
+use Devletes\NotificationsMax\Filament\Resources\BroadcastNotifications\RelationManagers\AudienceRelationManager;
 use Devletes\NotificationsMax\Models\BroadcastNotification;
 use Devletes\NotificationsMax\NotificationsMaxPlugin;
 use Devletes\NotificationsMax\Registry\NotificationTypeRegistry;
-use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
-use Filament\Support\Icons\Heroicon;
-use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
@@ -45,7 +45,28 @@ use UnitEnum;
  */
 class BroadcastNotificationResource extends Resource
 {
+    /**
+     * Model class Filament uses to hydrate and persist broadcast rows.
+     * Resolution is delegated to {@see static::getModel()} so the concrete
+     * class is driven by `notifications-max.broadcaster.model` config. Host
+     * apps subclass the shipped model (e.g. to implement an approval
+     * contract) and point the config key at the subclass without having to
+     * fork this resource. The property below stays set to the package
+     * default as a belt-and-braces fallback for early-boot contexts where
+     * config access is unavailable.
+     */
     protected static ?string $model = BroadcastNotification::class;
+
+    public static function getModel(): string
+    {
+        $configured = config('notifications-max.broadcaster.model');
+
+        if (is_string($configured) && $configured !== '' && class_exists($configured)) {
+            return $configured;
+        }
+
+        return parent::getModel();
+    }
 
     /**
      * Disable Filament's automatic tenant scoping. The package's model lives
@@ -140,6 +161,87 @@ class BroadcastNotificationResource extends Resource
         ]);
     }
 
+    public static function infolist(Schema $schema): Schema
+    {
+        // Inline labels (label and value on the same line) are applied at
+        // the schema level so every entry in this infolist inherits them
+        // — avoids sprinkling ->inlineLabel() across every TextEntry.
+        return $schema
+            ->inlineLabel()
+            ->components([
+                Grid::make(4)
+                    ->columnSpanFull()
+                    ->schema([
+                        // Message + metadata in one section. Subject/body
+                        // are the headline; CTA and provenance sit below.
+                        Section::make('Message')
+                            ->columnSpan(3)
+                            ->schema([
+                                TextEntry::make('subject'),
+                                TextEntry::make('body'),
+                                TextEntry::make('action_url')
+                                    ->label('Call-to-action URL')
+                                    ->url(fn (BroadcastNotification $record): ?string => $record->action_url)
+                                    ->openUrlInNewTab()
+                                    ->placeholder('—'),
+                                TextEntry::make('action_label')
+                                    ->label('Button label')
+                                    ->placeholder('—'),
+                                TextEntry::make('creator.name')
+                                    ->label('Created by')
+                                    ->placeholder('—'),
+                                TextEntry::make('created_at')
+                                    ->label('Created at')
+                                    ->dateTime('M j, Y H:i'),
+                            ]),
+
+                        // Sidebar: delivery + lifecycle snapshot.
+                        Section::make('Delivery')
+                            ->columnSpan(1)
+                            ->schema([
+                                TextEntry::make('channels')
+                                    ->label('Channels')
+                                    ->badge()
+                                    ->color('gray')
+                                    ->formatStateUsing(fn (string $state): string => Str::headline($state)),
+                                TextEntry::make('status')
+                                    ->label('Status')
+                                    ->badge()
+                                    ->formatStateUsing(fn (string $state): string => static::statusLabel($state))
+                                    ->color(fn (string $state): string => static::statusColor($state)),
+                                TextEntry::make('scheduled_at')
+                                    ->label('Scheduled')
+                                    ->dateTime('M j, Y H:i')
+                                    ->placeholder('Immediate'),
+                                TextEntry::make('sent_at')
+                                    ->label('Sent')
+                                    ->dateTime('M j, Y H:i')
+                                    ->placeholder('—'),
+                                TextEntry::make('recipients_count')
+                                    ->label('Recipients')
+                                    ->numeric()
+                                    ->placeholder('—'),
+                            ]),
+                    ]),
+            ]);
+    }
+
+    public static function getRelations(): array
+    {
+        // Host apps can swap the audience relation manager via config
+        // (see `notifications-max.broadcaster.audience_relation_manager`)
+        // to show extra per-user columns — department, job title, etc. —
+        // without forking the resource.
+        $class = config(
+            'notifications-max.broadcaster.audience_relation_manager',
+            AudienceRelationManager::class,
+        );
+
+        return [
+            is_string($class) && class_exists($class) ? $class : AudienceRelationManager::class,
+        ];
+    }
+
     public static function table(Table $table): Table
     {
         return $table
@@ -151,34 +253,21 @@ class BroadcastNotificationResource extends Resource
                     ->limit(60),
                 TextColumn::make('audience_summary')
                     ->label('Audience')
-                    ->state(fn (BroadcastNotification $r): string => app(BroadcastAudienceResolver::class)->summarize($r->audience ?? []))
+                    ->state(fn (BroadcastNotification $record): string => app(BroadcastAudienceResolver::class)->summarize($record->audience ?? []))
                     ->wrap()
                     ->limit(60)
                     ->color('gray'),
                 TextColumn::make('channels')
                     ->label('Channels')
                     ->badge()
+                    ->color('gray')
                     ->formatStateUsing(fn (string $state): string => Str::headline($state))
                     ->separator(','),
                 TextColumn::make('status')
                     ->label('Status')
                     ->badge()
-                    ->state(function (BroadcastNotification $r): string {
-                        if ($r->sent_at) {
-                            return 'sent';
-                        }
-
-                        if ($r->scheduled_at) {
-                            return 'scheduled';
-                        }
-
-                        return 'draft';
-                    })
-                    ->colors([
-                        'success' => 'sent',
-                        'warning' => 'scheduled',
-                        'gray' => 'draft',
-                    ]),
+                    ->formatStateUsing(fn (string $state): string => static::statusLabel($state))
+                    ->color(fn (string $state): string => static::statusColor($state)),
                 TextColumn::make('recipients_count')
                     ->label('Recipients')
                     ->numeric()
@@ -206,12 +295,12 @@ class BroadcastNotificationResource extends Resource
                     ->trueLabel('Sent')
                     ->falseLabel('Pending / scheduled')
                     ->queries(
-                        true: fn ($q) => $q->whereNotNull('sent_at'),
-                        false: fn ($q) => $q->whereNull('sent_at'),
+                        true: fn ($q) => $q->where('status', 'sent'),
+                        false: fn ($q) => $q->where('status', '!=', 'sent'),
                         blank: fn ($q) => $q,
                     ),
             ])
-            ->recordUrl(fn (BroadcastNotification $r): ?string => $r->sent_at ? null : static::getUrl('edit', ['record' => $r]));
+            ->recordUrl(fn (BroadcastNotification $record): string => static::getUrl('view', ['record' => $record]));
     }
 
     public static function getNavigationGroup(): ?string
@@ -243,11 +332,47 @@ class BroadcastNotificationResource extends Resource
 
     public static function getPages(): array
     {
+        // View page is configurable so host apps can subclass and inject
+        // domain-specific infolist sections (approval progress, delivery
+        // analytics, audit trails, etc.) without forking the resource.
+        $viewPage = config('notifications-max.broadcaster.view_page', ViewBroadcastNotification::class);
+
+        if (! is_string($viewPage) || ! class_exists($viewPage)) {
+            $viewPage = ViewBroadcastNotification::class;
+        }
+
         return [
             'index' => ListBroadcastNotifications::route('/'),
             'create' => CreateBroadcastNotification::route('/create'),
+            'view' => $viewPage::route('/{record}'),
             'edit' => EditBroadcastNotification::route('/{record}/edit'),
         ];
+    }
+
+    /**
+     * Look up the human-readable label for a status string. Falls back to a
+     * prettified version of the raw status key when it isn't in the config
+     * registry — keeps the UI sane even if a host app transitions a row to
+     * a status it forgot to register.
+     */
+    public static function statusLabel(string $status): string
+    {
+        $label = config("notifications-max.broadcaster.statuses.{$status}.label");
+
+        return is_string($label) && $label !== ''
+            ? $label
+            : Str::headline($status);
+    }
+
+    /**
+     * Filament badge color for a status string. Defaults to 'gray' when the
+     * status isn't in the config registry.
+     */
+    public static function statusColor(string $status): string
+    {
+        $color = config("notifications-max.broadcaster.statuses.{$status}.color");
+
+        return is_string($color) && $color !== '' ? $color : 'gray';
     }
 
     /**

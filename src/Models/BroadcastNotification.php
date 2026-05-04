@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Devletes\NotificationsMax\Models;
 
-use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -14,18 +13,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * {@see \Devletes\NotificationsMax\Jobs\SendBroadcastJob} which resolves
  * audience via the {@see \Devletes\NotificationsMax\Contracts\BroadcastAudienceResolver}
  * contract and fans out one `broadcast.admin_custom` notification per recipient.
- *
- * UUID primary key to match the conventions of Laravel's `notifications`
- * table and avoid exposing sequential ids in URLs.
  */
 class BroadcastNotification extends Model
 {
     use HasFactory;
-    use HasUuids;
-
-    public $incrementing = false;
-
-    protected $keyType = 'string';
 
     protected $fillable = [
         'tenant_id',
@@ -38,6 +29,7 @@ class BroadcastNotification extends Model
         'color',
         'action_url',
         'action_label',
+        'status',
         'scheduled_at',
         'sent_at',
         'recipients_count',
@@ -60,16 +52,23 @@ class BroadcastNotification extends Model
     }
 
     /**
-     * True iff the broadcast has not yet been dispatched to recipients.
-     * Used by the Filament resource to show "Send now" / "Edit" actions.
+     * True when the status is in the list of statuses that allow the Publish
+     * action to fire (config `notifications-max.broadcaster.publishable_statuses`).
+     * Hosts that layer an approval step add their post-approval status
+     * ('approved', etc.) to that list.
      */
-    public function isPending(): bool
+    public function isPublishable(): bool
     {
-        return $this->sent_at === null;
+        $publishable = config('notifications-max.broadcaster.publishable_statuses', ['draft']);
+
+        return in_array($this->status, $publishable, true);
     }
 
-    public function isScheduled(): bool
+    /**
+     * True once the broadcast has finished fanning out to recipients.
+     */
+    public function isSent(): bool
     {
-        return $this->isPending() && $this->scheduled_at !== null;
+        return $this->status === 'sent';
     }
 }

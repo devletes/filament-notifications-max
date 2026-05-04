@@ -16,10 +16,50 @@ final class NotificationType
     public function __construct(
         public readonly string $key,
         public readonly string $category,
+        /**
+         * Optional sub-category for the preferences UI. When several types
+         * in the same `category` share a `group`, the preferences page
+         * collapses them into one fieldset (e.g. "Requests") with one row
+         * per type and inline channel toggles — instead of rendering N
+         * separate fieldsets. Types that omit `group` fall back to the
+         * per-type fieldset layout.
+         */
+        public readonly ?string $group,
+        /**
+         * Row label shown inside a group's fieldset. Typically a short
+         * action phrase ("Needs your approval", "Rejected", …) as opposed
+         * to the full {@see self::$label} which often repeats the subject
+         * ("Request rejected"). Ignored when the type has no {@see $group}.
+         */
+        public readonly ?string $groupLabel,
         public readonly string $label,
         public readonly string $description,
+        /**
+         * Top-level `title` and `body` are kept as a convenience fallback
+         * for types that don't declare per-channel content. The content
+         * resolver maps these onto whichever channel field makes sense
+         * (push title, email subject, etc.) so simple types can declare a
+         * single title/body and have it work everywhere.
+         */
         public readonly string $title,
         public readonly string $body,
+        /**
+         * Per-channel content overrides keyed by channel:
+         *
+         *   'content' => [
+         *       'push'  => ['title' => '...', 'body' => '...'],
+         *       'email' => ['subject' => '...', 'body' => '<p>...</p>', 'template' => 'default'],
+         *   ]
+         *
+         * Field names are declared by each channel's `content_fields`
+         * entry in `config('notifications-max.channels')`. Any field a
+         * channel needs but the type doesn't supply falls back to the
+         * top-level `title`/`body` (where semantically meaningful — see
+         * `NotificationContentResolver::fallbackFromTopLevel()`).
+         *
+         * @var array<string, array<string, mixed>>
+         */
+        public readonly array $content,
         public readonly string $icon,
         public readonly ?string $color,
         /**
@@ -89,10 +129,13 @@ final class NotificationType
         return new self(
             key: $key,
             category: $config['category'] ?? $defaults['category'] ?? 'general',
+            group: isset($config['group']) && $config['group'] !== '' ? (string) $config['group'] : null,
+            groupLabel: isset($config['group_label']) && $config['group_label'] !== '' ? (string) $config['group_label'] : null,
             label: $config['label'] ?? $key,
             description: $config['description'] ?? '',
             title: $config['title'] ?? '',
             body: $config['body'] ?? '',
+            content: is_array($config['content'] ?? null) ? $config['content'] : [],
             icon: $config['icon'] ?? $defaults['icon'] ?? 'heroicon-o-bell',
             color: $config['color'] ?? null,
             status: $config['status'] ?? null,

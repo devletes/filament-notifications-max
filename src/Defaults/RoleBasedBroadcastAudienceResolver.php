@@ -11,7 +11,12 @@ use Illuminate\Database\Eloquent\Builder;
 use Spatie\Permission\Models\Role;
 
 /**
- * Default {@see BroadcastAudienceResolver} — picks recipients by Spatie role.
+ * Optional {@see BroadcastAudienceResolver} — picks recipients by Spatie role.
+ *
+ * Ships with the package but is **not** the default. Point
+ * `notifications-max.broadcaster.audience_resolver` at this class when the
+ * host app uses spatie/laravel-permission and prefers to target broadcasts
+ * by role membership rather than picking users individually.
  *
  * Audience JSON shape:
  *   {"role_ids": [1, 2, 3]}

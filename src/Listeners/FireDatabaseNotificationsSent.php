@@ -6,8 +6,10 @@ namespace Devletes\NotificationsMax\Listeners;
 
 use Devletes\NotificationsMax\Notifications\GenericNotification;
 use Filament\Notifications\Events\DatabaseNotificationsSent;
+use Illuminate\Broadcasting\BroadcastException;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Notifications\Events\NotificationSent;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Bridges Laravel's standard notification pipeline to Filament's bell UI.
@@ -47,6 +49,27 @@ class FireDatabaseNotificationsSent
             return;
         }
 
-        DatabaseNotificationsSent::dispatch($event->notifiable);
+        // DatabaseNotificationsSent implements ShouldBroadcast, so this
+        // dispatch synchronously invokes Laravel's broadcaster (Reverb/Pusher).
+        // A dev environment without Reverb running, or a transient socket
+        // outage in prod, would otherwise surface as a 500 to the triggering
+        // request — even though the database channel already persisted the
+        // bell row successfully. Degrade the failure to a log line: the user
+        // still sees their notification on the next bell poll (30s polling
+        // fallback), they just miss the real-time push for this one event.
+        //
+        // The exception is caught here rather than in NotificationDispatcher
+        // because GenericNotification uses `afterCommit` — the actual send
+        // (and any broadcast failure) fires from a post-commit callback,
+        // outside the dispatcher's own try/catch call frame.
+        try {
+            DatabaseNotificationsSent::dispatch($event->notifiable);
+        } catch (BroadcastException $e) {
+            Log::warning('notifications-max: real-time bell refresh failed', [
+                'notifiable_type' => $event->notifiable::class,
+                'notifiable_id' => $event->notifiable->getAuthIdentifier(),
+                'message' => $e->getMessage(),
+            ]);
+        }
     }
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Devletes\NotificationsMax\Filament\Pages;
 
+use Devletes\NotificationsMax\NotificationsMaxPlugin;
 use Devletes\NotificationsMax\Registry\NotificationType;
 use Devletes\NotificationsMax\Registry\NotificationTypeRegistry;
 use BackedEnum;
@@ -66,6 +67,66 @@ class NotificationCenter extends Page implements HasTable
         return (bool) config('notifications-max.notification_center.show_in_navigation', false);
     }
 
+    /**
+     * Filament's stock Page::getBreadcrumbs() returns an empty array for
+     * standalone (non-clustered) pages, so breadcrumbs never render here
+     * even when the host panel has them enabled. Build a minimal trail
+     * from the navigation group + page title; the layout respects
+     * `$panel->breadcrumbs(false)` itself, so returning unconditionally
+     * is safe.
+     *
+     * @return array<int|string, string>
+     */
+    public function getBreadcrumbs(): array
+    {
+        $breadcrumbs = [];
+
+        $group = static::getNavigationGroup();
+
+        if ($group instanceof UnitEnum) {
+            $group = $group->name;
+        }
+
+        if (is_string($group) && $group !== '') {
+            $breadcrumbs[] = $group;
+        }
+
+        $breadcrumbs[] = static::getNavigationLabel() ?: (static::$title ?? 'Notifications');
+
+        return $breadcrumbs;
+    }
+
+    /**
+     * Header actions for the page. The "Preferences" action is auto-added
+     * when the host opted into the user-preferences page on this panel
+     * (`NotificationsMaxPlugin::make()->preferencesPage()`); it deep-links
+     * to the page so users have a discoverable jump from the notification
+     * list into their per-channel toggles. Hidden when the preferences
+     * page isn't registered on the panel — no orphan link.
+     *
+     * @return array<int, Action>
+     */
+    protected function getHeaderActions(): array
+    {
+        $actions = [];
+
+        try {
+            $hasPrefs = NotificationsMaxPlugin::get()->hasPreferencesPage();
+        } catch (\Throwable) {
+            $hasPrefs = false;
+        }
+
+        if ($hasPrefs) {
+            $actions[] = Action::make('preferences')
+                ->label('Preferences')
+                ->icon('heroicon-m-adjustments-horizontal')
+                ->color('gray')
+                ->url(fn (): string => NotificationPreferences::getUrl());
+        }
+
+        return $actions;
+    }
+
     public function table(Table $table): Table
     {
         return $table
@@ -90,7 +151,12 @@ class NotificationCenter extends Page implements HasTable
                     ->label('Category')
                     ->badge()
                     ->state(fn (DatabaseNotification $row): string => $this->categoryFor($row))
-                    ->formatStateUsing(fn (string $state): string => Str::headline($state)),
+                    ->formatStateUsing(fn (string $state): string => Str::headline($state))
+                    // Category→color mapping is config-driven so hosts can
+                    // tune it without subclassing this page. Anything not
+                    // listed falls back to neutral gray, keeping the list
+                    // quiet by default.
+                    ->color(fn (string $state): string => config("notifications-max.category_colors.{$state}", 'gray')),
                 TextColumn::make('created_at')
                     ->label('Received')
                     ->since()
@@ -100,7 +166,13 @@ class NotificationCenter extends Page implements HasTable
                     ->label('Status')
                     ->badge()
                     ->state(fn (DatabaseNotification $row): string => $row->unread() ? 'Unread' : 'Read')
-                    ->color(fn (string $state): string => $state === 'Unread' ? 'primary' : 'gray'),
+                    // Color mapping uses the lowercase state key so the
+                    // config reads naturally. Fallback to gray keeps any
+                    // unexpected future status visually neutral.
+                    ->color(fn (string $state): string => config(
+                        'notifications-max.status_colors.' . strtolower($state),
+                        'gray',
+                    )),
             ])
             ->filters([
                 SelectFilter::make('status')

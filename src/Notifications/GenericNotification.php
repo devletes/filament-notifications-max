@@ -8,10 +8,9 @@ use Devletes\NotificationsMax\Contracts\ActionUrlBuilder;
 use Devletes\NotificationsMax\Contracts\PreferenceResolver;
 use Devletes\NotificationsMax\Registry\NotificationType;
 use Devletes\NotificationsMax\Registry\NotificationTypeRegistry;
+use Devletes\NotificationsMax\Services\NotificationContentResolver;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification as FilamentNotification;
-use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\BroadcastMessage;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
@@ -26,25 +25,26 @@ use Illuminate\Support\Str;
  *
  * Adding a new notification type = adding a row to that registry. No new
  * PHP class.
+ *
+ * NOT `ShouldQueue` by design. All channel work (database persist, toast
+ * broadcast, email send) runs synchronously inside the caller's
+ * `Notification::send()` call, so any channel failure — notably a
+ * BroadcastException when Reverb is unreachable — lands in
+ * {@see \Devletes\NotificationsMax\Services\NotificationDispatcher::send()}'s
+ * try/catch and degrades to a logged warning instead of a 500. If a host
+ * wants async delivery of a specific channel (e.g. batched email), they
+ * can declare a per-type `notification_class` that extends this one and
+ * opts into `ShouldQueue`.
  */
-final class GenericNotification extends Notification implements ShouldQueue
+final class GenericNotification extends Notification
 {
-    use Queueable;
-
     /**
      * @param  array<string, mixed>  $context  Placeholders + routing data
      */
     public function __construct(
         public readonly string $typeKey,
         public readonly array $context = [],
-    ) {
-        // Dispatch only after the enclosing DB transaction commits. The
-        // workflow services wrap dispatches in DB::transaction() — without
-        // this, a queued notification could reference a record that the
-        // transaction later rolled back. `$afterCommit` is declared by
-        // Laravel's Queueable trait, so we set it here instead of shadowing.
-        $this->afterCommit = true;
-    }
+    ) {}
 
     /**
      * @return array<int, string>
@@ -92,9 +92,14 @@ final class GenericNotification extends Notification implements ShouldQueue
     {
         $type = $this->resolveType();
 
+        // Push channel content — admin overrides win over config when the
+        // package is in database mode; resolver handles the precedence.
+        $push = app(NotificationContentResolver::class)
+            ->contentFor($type->key, 'push', $this->resolveTenantId());
+
         $filament = FilamentNotification::make()
-            ->title($this->render($type->title))
-            ->body($this->render($type->body))
+            ->title($this->render((string) ($push['title'] ?? $type->title)))
+            ->body($this->render((string) ($push['body'] ?? $type->body)))
             ->icon($type->icon);
 
         if ($type->color) {
@@ -113,7 +118,7 @@ final class GenericNotification extends Notification implements ShouldQueue
             $filament->actions($actions);
         }
 
-        return array_merge(
+        $payload = array_merge(
             // `getDatabaseMessage()` forces duration='persistent' and sets
             // format='filament'; we inherit both instead of duplicating.
             $filament->getDatabaseMessage(),
@@ -125,6 +130,18 @@ final class GenericNotification extends Notification implements ShouldQueue
                 ],
             ],
         );
+
+        // Stamp the originating broadcast id at the top of the payload so
+        // the admin-side audience table's read/unread subquery can find
+        // matching rows via `data->broadcast_id` without having to walk
+        // into `_meta`. Only written for notifications dispatched from a
+        // `BroadcastNotification` — every other call site leaves this
+        // key absent.
+        if (isset($this->context['broadcast_id'])) {
+            $payload['broadcast_id'] = $this->context['broadcast_id'];
+        }
+
+        return $payload;
     }
 
     /**
@@ -206,18 +223,41 @@ final class GenericNotification extends Notification implements ShouldQueue
     {
         $type = $this->resolveType();
 
-        $message = (new MailMessage)
-            ->subject($this->render($type->title))
-            ->line($this->render($type->body));
+        // Email channel content — same resolver handles config-vs-DB
+        // precedence. The shape returned matches `content_fields` declared
+        // for the email channel: subject, body (HTML), template name.
+        $email = app(NotificationContentResolver::class)
+            ->contentFor($type->key, 'email', $this->resolveTenantId());
+
+        $subject = $this->render((string) ($email['subject'] ?? $type->title));
+        $body = $this->render((string) ($email['body'] ?? $type->body));
+        $templateName = (string) ($email['template'] ?? '');
+
+        $message = (new MailMessage)->subject($subject);
+
+        // Resolve the chosen email template's Blade view. Falls back to
+        // Laravel's default "line" rendering when the host hasn't
+        // registered any templates or chose an unknown one — keeps the
+        // package working out-of-the-box without forcing a template
+        // registry to be configured.
+        $templateView = $this->resolveEmailTemplateView($templateName);
+
+        if ($templateView !== null) {
+            $message->view($templateView, [
+                'subject' => $subject,
+                'content' => $body,
+                'recipient' => $notifiable,
+                'type' => $type,
+            ]);
+        } else {
+            $message->line($body);
+        }
 
         // For mail we collapse the (possibly multi-) action list to its first
         // entry — Laravel's MailMessage convention is one primary action.
         $actions = $this->buildActions($type);
 
         if ($actions === [] && $type->actionResource !== null) {
-            // Legacy fallback: synthesize a single 'view' action from the
-            // action_resource path so existing configs keep working without
-            // declaring an explicit `actions` array.
             if ($url = $this->buildLegacyActionUrl($type)) {
                 $message->action($this->resolveActionLabel($type), $url);
             }
@@ -231,6 +271,40 @@ final class GenericNotification extends Notification implements ShouldQueue
         }
 
         return $message;
+    }
+
+    /**
+     * Resolve a registered email template name to its Blade view path.
+     * Returns null when the template registry is empty or the name isn't
+     * known — caller falls back to the line-based MailMessage default.
+     */
+    protected function resolveEmailTemplateView(string $name): ?string
+    {
+        $templates = config('notifications-max.email_templates', []);
+
+        if (! is_array($templates) || $templates === []) {
+            return null;
+        }
+
+        if ($name !== '' && isset($templates[$name])) {
+            return (string) $templates[$name];
+        }
+
+        return (string) reset($templates);
+    }
+
+    /**
+     * Tenant scope for content lookups. Pulled from context (set by the
+     * dispatcher's enrichContext) when present, falling back to the bound
+     * TenantResolver. Returns null in single-tenant installs.
+     */
+    protected function resolveTenantId(): ?int
+    {
+        if (isset($this->context['tenant_id'])) {
+            return is_numeric($this->context['tenant_id']) ? (int) $this->context['tenant_id'] : null;
+        }
+
+        return app(\Devletes\NotificationsMax\Contracts\TenantResolver::class)->currentId();
     }
 
     /**

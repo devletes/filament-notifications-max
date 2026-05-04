@@ -1,0 +1,84 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * Per-(tenant, type) overrides for notification content + admin channel
+ * allowance. Active only when `notifications-max.content_source` is set
+ * to `'database'` — config mode ignores this table entirely.
+ *
+ * Resolution semantics (database mode):
+ *   - Row exists for (tenant, type) → use its values verbatim, with
+ *     individual NULL fields treated as "no override on that field" and
+ *     falling back to the type's config defaults.
+ *   - Row missing → fall back to config defaults across the board.
+ *
+ * The `notifications-max:seed-content` artisan command populates rows from
+ * config so admins start from the current copy and can edit-in-place
+ * rather than starting blank.
+ *
+ * Why two JSON columns instead of typed per-channel columns:
+ *   The package ships with `push` + `email` but is designed so additional
+ *   channels (sms, slack, teams, webhook, ...) can be registered through
+ *   config. Channel-specific content is held in `channel_content` keyed by
+ *   the channel name — adding a new channel never requires a migration,
+ *   and consumer code reads `channel_content[$channel][$field]` regardless
+ *   of which channel is being rendered.
+ *
+ * `allowed_channels` constrains user preferences: an end user cannot turn
+ * on a channel that the admin has disabled here. Mandatory types (declared
+ * in config) bypass this entirely — they always fire on every channel
+ * declared in their config-level `allowed_channels`.
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('notification_type_overrides', function (Blueprint $table): void {
+            $table->id();
+
+            // Nullable for single-tenant installs. Multi-tenant installs
+            // store one row per (tenant_id, type_key); single-tenant ones
+            // store one row per type_key with tenant_id = null.
+            $table->unsignedBigInteger('tenant_id')->nullable();
+
+            $table->string('type_key');
+
+            // Admin's channel allowance for this (tenant, type). JSON array
+            // of logical channel keys, e.g. `["push", "email"]`. NULL means
+            // "no admin override on channels — use the type's config-level
+            // allowed_channels". An empty array means "admin disabled all
+            // channels for this type" (still fires for mandatory types,
+            // which bypass admin allowance — see migration docblock).
+            $table->json('allowed_channels')->nullable();
+
+            // Channel content overrides. JSON object keyed by channel:
+            //
+            //   {
+            //     "push":  {"title": "...", "body": "..."},
+            //     "email": {"subject": "...", "body": "...", "template": "default"},
+            //     "sms":   {"body": "..."}
+            //   }
+            //
+            // Field names + types per channel are declared in the channel
+            // registry (`config('notifications-max.channels')`), so this
+            // column structure adapts to new channels without schema work.
+            // NULL on the column or a missing channel key means "fall back
+            // to type config".
+            $table->json('channel_content')->nullable();
+
+            $table->timestamps();
+
+            // One override row per (tenant, type) — saving twice updates
+            // the same row.
+            $table->unique(['tenant_id', 'type_key'], 'nto_tenant_type_unique');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('notification_type_overrides');
+    }
+};

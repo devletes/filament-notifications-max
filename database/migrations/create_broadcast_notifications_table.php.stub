@@ -25,7 +25,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('broadcast_notifications', function (Blueprint $table) {
-            $table->uuid('id')->primary();
+            $table->id();
             $table->unsignedBigInteger('tenant_id')->nullable();
             $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
 
@@ -38,9 +38,10 @@ return new class extends Migration
             $table->json('channels');
 
             // Audience payload — shape is defined by the bound
-            // BroadcastAudienceResolver. Default role-based impl stores
-            // `{"role_ids": [...]}`; host apps with custom resolvers persist
-            // whatever their matcher understands.
+            // BroadcastAudienceResolver. Default user-picker impl stores
+            // `{"user_ids": [...]}`; the shipped role-based alternative
+            // stores `{"role_ids": [...]}`; host apps with custom resolvers
+            // persist whatever their matcher understands.
             $table->json('audience');
 
             $table->string('icon')->nullable();
@@ -48,12 +49,19 @@ return new class extends Migration
             $table->string('action_url')->nullable();
             $table->string('action_label')->nullable();
 
+            // Broadcast lifecycle. Lookup values come from the package's
+            // status registry in config/notifications-max.php; host apps
+            // extend the set (e.g. 'pending_approval', 'approved') without
+            // schema changes. Defaults ship as draft → queued/scheduled → sent.
+            $table->string('status')->default('draft');
+
             $table->timestamp('scheduled_at')->nullable();
             $table->timestamp('sent_at')->nullable();
             $table->unsignedInteger('recipients_count')->nullable();
 
             $table->timestamps();
 
+            $table->index(['tenant_id', 'status'], 'bnf_tenant_status_idx');
             $table->index(['tenant_id', 'scheduled_at'], 'bnf_tenant_scheduled_idx');
             $table->index(['tenant_id', 'sent_at'], 'bnf_tenant_sent_idx');
         });

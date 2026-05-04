@@ -6,20 +6,18 @@ namespace Devletes\NotificationsMax;
 
 use Devletes\NotificationsMax\Filament\Pages\NotificationCenter;
 use Devletes\NotificationsMax\Filament\Pages\NotificationPreferences;
+use Devletes\NotificationsMax\Filament\Pages\NotificationSettings;
 use Devletes\NotificationsMax\Filament\Resources\BroadcastNotifications\BroadcastNotificationResource;
 use Filament\Contracts\Plugin;
 use Filament\Panel;
-use Filament\Support\Facades\FilamentView;
-use Filament\View\PanelsRenderHook;
-use Illuminate\Support\HtmlString;
 
 class NotificationsMaxPlugin implements Plugin
 {
-    protected bool $databaseNotifications = false;
-
     protected bool $preferencesPage = false;
 
     protected bool $notificationCenterPage = false;
+
+    protected bool $notificationSettingsPage = false;
 
     protected bool $broadcaster = false;
 
@@ -47,17 +45,16 @@ class NotificationsMaxPlugin implements Plugin
 
     public function register(Panel $panel): void
     {
-        if ($this->databaseNotifications) {
-            // Enable Filament's stock bell + dropdown. We don't override the
-            // Livewire component anymore — toast/bell close behaviour follows
-            // Filament defaults (delete on ×), which is safe for the toast
-            // because GenericNotification::broadcastWith() gives the toast a
-            // distinct id that no DB row matches (so toast X / auto-dismiss
-            // are visual-only). Bell-panel × still deletes the matching row,
-            // matching user expectation for an explicit dismiss gesture.
-            $panel->databaseNotifications(condition: true);
-        }
+        // The bell + dropdown are core to this package — a panel with the
+        // plugin registered always gets them. Disabling notifications while
+        // installing a notifications plugin is counter-intuitive; the opt-out
+        // toggle that used to live here was removed accordingly.
+        $panel->databaseNotifications(condition: true);
 
+        // User preferences page registers when ->preferencesPage() is set.
+        // The page's `shouldRegisterNavigation()` returns false so it
+        // doesn't appear in the sidebar; it's reached via the
+        // "Preferences" header action on the NotificationCenter page.
         if ($this->preferencesPage) {
             $panel->pages([
                 NotificationPreferences::class,
@@ -67,6 +64,17 @@ class NotificationsMaxPlugin implements Plugin
         if ($this->notificationCenterPage) {
             $panel->pages([
                 NotificationCenter::class,
+            ]);
+        }
+
+        if ($this->notificationSettingsPage) {
+            // Admin-facing settings page — global content + channel
+            // allowance per (tenant, type). Permission-gated via
+            // `canAccess()` on the configured Spatie permission, so the
+            // nav entry hides automatically for users without the
+            // permission.
+            $panel->pages([
+                NotificationSettings::class,
             ]);
         }
 
@@ -84,22 +92,20 @@ class NotificationsMaxPlugin implements Plugin
 
     public function boot(Panel $panel): void
     {
-        // Runtime panel-level setup (e.g. render hooks for bell icon customizations)
-        // will live here as features are implemented.
+        //
     }
 
     // ---------------------------------------------------------------------
     // Feature toggles. Each returns $this for fluent chaining in the panel
-    // provider: NotificationsMaxPlugin::make()->databaseNotifications()->...
+    // provider: NotificationsMaxPlugin::make()->preferencesPage()->...
     // ---------------------------------------------------------------------
 
-    public function databaseNotifications(bool $condition = true): static
-    {
-        $this->databaseNotifications = $condition;
-
-        return $this;
-    }
-
+    /**
+     * Enable the user-facing notification preferences (per-channel toggles
+     * per type). The page itself sits behind the user-dropdown link rather
+     * than the sidebar — call this on every panel where end users should
+     * be able to manage their personal channel preferences.
+     */
     public function preferencesPage(bool $condition = true): static
     {
         $this->preferencesPage = $condition;
@@ -110,6 +116,19 @@ class NotificationsMaxPlugin implements Plugin
     public function notificationCenterPage(bool $condition = true): static
     {
         $this->notificationCenterPage = $condition;
+
+        return $this;
+    }
+
+    /**
+     * Enable the admin-facing notification settings page (per-tenant
+     * channel allowance + content overrides). Permission-gated via
+     * `notifications-max.notification_settings.permission`. Typically
+     * enabled on the admin panel only.
+     */
+    public function notificationSettingsPage(bool $condition = true): static
+    {
+        $this->notificationSettingsPage = $condition;
 
         return $this;
     }
@@ -146,11 +165,6 @@ class NotificationsMaxPlugin implements Plugin
     // Accessors used by the service provider and downstream features.
     // ---------------------------------------------------------------------
 
-    public function hasDatabaseNotifications(): bool
-    {
-        return $this->databaseNotifications;
-    }
-
     public function hasPreferencesPage(): bool
     {
         return $this->preferencesPage;
@@ -159,6 +173,11 @@ class NotificationsMaxPlugin implements Plugin
     public function hasNotificationCenterPage(): bool
     {
         return $this->notificationCenterPage;
+    }
+
+    public function hasNotificationSettingsPage(): bool
+    {
+        return $this->notificationSettingsPage;
     }
 
     public function hasBroadcaster(): bool

@@ -15,18 +15,25 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 
 /**
- * Fans out a stored {@see BroadcastNotification} to its resolved audience.
+ * Pure fan-out: takes a released {@see BroadcastNotification} and spreads it
+ * to its recipients.
  *
- * Pipeline:
- *   1. Restore tenant context (for multi-tenant queue workers where the
- *      HTTP lifecycle isn't carrying it).
- *   2. Resolve the audience via the bound {@see BroadcastAudienceResolver}.
- *   3. Chunk the user list (100 per batch) and dispatch one
- *      `broadcast.admin_custom` per chunk through {@see NotificationDispatcher}.
- *   4. Stamp `sent_at` + `recipients_count` on the broadcast row.
+ * This job holds no business logic — no pipeline calls, no permission
+ * checks, no decisions about whether the broadcast should go out. By the
+ * time a row reaches here its status is either `queued` (immediate release)
+ * or `scheduled` (time-deferred release); anything else means the row was
+ * cancelled, already sent, or otherwise not appropriate to dispatch, and
+ * the job exits early.
  *
- * Scheduled broadcasts are dispatched with `->delay($scheduled_at)` at
- * creation time — no cron sweep needed.
+ * Pipeline inside this job:
+ *   1. Reload the row to guard against stale state (retries, deletion,
+ *      cancellation) between queueing and execution.
+ *   2. Restore tenant context for the worker — Filament's tenant facade
+ *      isn't bound from HTTP in queue worker processes.
+ *   3. Chunk the audience query (100 users at a time) and dispatch a
+ *      `broadcast.admin_custom` notification per chunk via the
+ *      NotificationDispatcher.
+ *   4. Stamp `sent_at`, `status='sent'`, and `recipients_count` on the row.
  */
 class SendBroadcastJob implements ShouldQueue
 {
@@ -42,23 +49,21 @@ class SendBroadcastJob implements ShouldQueue
         TenantResolver $tenantResolver,
         NotificationDispatcher $dispatcher,
     ): void {
-        // Reload from DB — guards against the broadcast having been deleted
-        // or already sent by the time the queue worker picks it up.
+        // Reload to pick up cancellations / status changes that happened
+        // after this job was queued.
         $broadcast = $this->broadcast->fresh();
 
         if ($broadcast === null) {
             return;
         }
 
-        if ($broadcast->sent_at !== null) {
-            // Idempotency: a double-dispatch (e.g. retry after timeout)
-            // shouldn't re-send to everyone.
+        // Status guard. Only release states are valid entry points; anything
+        // else (draft, pending_approval, rejected, sent, …) means the row
+        // shouldn't be dispatched right now.
+        if (! in_array($broadcast->status, ['queued', 'scheduled'], true)) {
             return;
         }
 
-        // Multi-tenant installs need the tenant bound in the queue context
-        // so downstream services (URL builders, preference resolver) see
-        // the right tenant.
         if ($broadcast->tenant_id !== null) {
             $tenantResolver->bindForJob((int) $broadcast->tenant_id);
         }
@@ -69,13 +74,11 @@ class SendBroadcastJob implements ShouldQueue
 
         $broadcast
             ->newQuery()
-            // We re-use the builder each chunk; Eloquent's chunkById is
-            // safer than offset-chunk against tables that may grow mid-send.
             ->getConnection()
             ->transaction(function () use ($broadcast, $audience, $dispatcher, $context, &$totalRecipients): void {
                 $audience
                     ->matchingUsersQuery($broadcast->audience ?? [], $broadcast->tenant_id)
-                    ->select(['id', 'tenant_id']) // minimize payload
+                    ->select(['id', 'tenant_id'])
                     ->chunkById(100, function ($chunk) use ($dispatcher, $context, &$totalRecipients): void {
                         if ($chunk->isEmpty()) {
                             return;
@@ -87,6 +90,7 @@ class SendBroadcastJob implements ShouldQueue
                     });
 
                 $broadcast->update([
+                    'status' => 'sent',
                     'sent_at' => now(),
                     'recipients_count' => $totalRecipients,
                 ]);

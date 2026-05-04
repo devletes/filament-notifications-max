@@ -10,6 +10,7 @@ use Devletes\NotificationsMax\Registry\NotificationTypeRegistry;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
 
 /**
@@ -57,7 +58,23 @@ class NotificationDispatcher
 
         $this->assertSingleTenant($users, $context);
 
-        Notification::send($users, $this->makeNotification($type->key, $context, $type->notificationClass));
+        // Laravel's notification sender iterates channels in via() order
+        // (database first, broadcast second, mail last, per our config/channels
+        // map). Any channel's failure aborts the loop — so a Reverb outage
+        // would break a submit-for-approval flow even though the database
+        // channel already persisted the bell row. Wrap the send so real-time
+        // transport failures degrade to "missed toast, logged warning"
+        // instead of bubbling up as a 500 for the host.
+        try {
+            Notification::send($users, $this->makeNotification($type->key, $context, $type->notificationClass));
+        } catch (\Throwable $e) {
+            Log::warning('notifications-max: partial notification delivery', [
+                'type_key' => $type->key,
+                'recipients' => $users->pluck('id')->all(),
+                'exception' => $e::class,
+                'message' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**

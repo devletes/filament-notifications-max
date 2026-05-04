@@ -5,19 +5,19 @@ declare(strict_types=1);
 namespace Devletes\NotificationsMax\Filament\Pages;
 
 use Devletes\NotificationsMax\Contracts\TenantResolver;
+use Devletes\NotificationsMax\Filament\Pages\Concerns\BuildsNotificationPrefsLayout;
 use Devletes\NotificationsMax\Models\UserNotificationPreference;
 use Devletes\NotificationsMax\Registry\NotificationType;
 use Devletes\NotificationsMax\Registry\NotificationTypeRegistry;
+use Devletes\NotificationsMax\Services\NotificationContentResolver;
 use Filament\Facades\Filament;
-use Filament\Forms\Components\Toggle;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
-use Filament\Schemas\Components\Fieldset;
-use Filament\Schemas\Components\Tabs;
-use Filament\Schemas\Components\Tabs\Tab;
+use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use UnitEnum;
 
@@ -28,15 +28,31 @@ use UnitEnum;
  * a Toggle per allowed channel. Mandatory types render as disabled rows with
  * a "Required" label so users understand they can't be silenced.
  *
+ * Channels users see for each type honour the admin's allowance (see
+ * NotificationContentResolver::allowedChannelsFor) — when an admin disables
+ * email for a type, users never see an email toggle for that type at all.
+ *
  * State path: data[prefs][{slugified_type_key}][{channel}] = bool
  */
 class NotificationPreferences extends Page implements HasForms
 {
+    use BuildsNotificationPrefsLayout;
     use InteractsWithForms;
+
+    /**
+     * Sidebar nav is suppressed by default — the page is reachable from
+     * the user-dropdown link the plugin auto-registers when either the
+     * admin or user side is enabled. Hosts that prefer a permanent
+     * sidebar shortcut subclass and flip this back to true.
+     */
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
 
     protected static string|UnitEnum|null $navigationGroup = 'Settings';
 
-    protected static ?string $navigationLabel = 'Notifications';
+    protected static ?string $navigationLabel = 'My notification preferences';
 
     protected static ?string $title = 'Notification preferences';
 
@@ -48,6 +64,8 @@ class NotificationPreferences extends Page implements HasForms
     public function mount(): void
     {
         $registry = app(NotificationTypeRegistry::class);
+        $resolver = app(NotificationContentResolver::class);
+        $tenantId = app(TenantResolver::class)->currentId();
         $user = Filament::auth()->user();
 
         $prefs = [];
@@ -55,8 +73,9 @@ class NotificationPreferences extends Page implements HasForms
         foreach ($registry->all() as $key => $type) {
             $safe = $this->safeKey($key);
             $explicit = $this->loadExplicit($user?->getKey(), $key);
+            $channels = $resolver->allowedChannelsFor($key, $tenantId);
 
-            foreach ($type->allowedChannels as $channel) {
+            foreach ($channels as $channel) {
                 $prefs[$safe][$channel] = $type->mandatory
                     ? true
                     : ($explicit[$channel] ?? $type->channelIsOnByDefault($channel));
@@ -75,44 +94,21 @@ class NotificationPreferences extends Page implements HasForms
             ->groupBy(fn (NotificationType $t) => $t->category)
             ->sortKeys();
 
+        // One Section per category, stacked top-to-bottom. Tabs were
+        // replaced with sections after approval types were collapsed —
+        // categories are short enough now that a single scrollable view
+        // is friendlier than tab-switching, and users see everything at
+        // once.
+        $components = $categories->map(
+            fn (Collection $categoryTypes, $category): Section => Section::make(Str::headline((string) $category))
+                ->schema($this->buildCategoryComponents($categoryTypes))
+                ->collapsible()
+                ->collapsed(false),
+        )->values()->all();
+
         return $schema
-            ->components([
-                Tabs::make('categories')
-                    ->tabs(
-                        $categories->map(function ($categoryTypes, $category) {
-                            return Tab::make(Str::headline((string) $category))
-                                ->schema(
-                                    $categoryTypes
-                                        ->map(fn (NotificationType $type) => $this->typeRow($type))
-                                        ->all(),
-                                );
-                        })->values()->all(),
-                    ),
-            ])
+            ->components($components)
             ->statePath('data');
-    }
-
-    protected function typeRow(NotificationType $type): Fieldset
-    {
-        $safe = $this->safeKey($type->key);
-
-        $toggles = array_map(
-            function (string $channel) use ($type, $safe) {
-                return Toggle::make("prefs.{$safe}.{$channel}")
-                    ->label($this->channelLabel($channel))
-                    ->inline()
-                    ->disabled($type->mandatory);
-            },
-            $type->allowedChannels,
-        );
-
-        $label = $type->mandatory
-            ? $type->label.'  —  Required'
-            : $type->label;
-
-        return Fieldset::make($label)
-            ->schema($toggles)
-            ->extraAttributes(['data-type-key' => $type->key]);
     }
 
     public function save(): void
@@ -130,6 +126,7 @@ class NotificationPreferences extends Page implements HasForms
         }
 
         $registry = app(NotificationTypeRegistry::class);
+        $resolver = app(NotificationContentResolver::class);
         $tenantId = app(TenantResolver::class)->currentId() ?? $user->tenant_id ?? null;
 
         $submitted = $this->form->getState()['prefs'] ?? [];
@@ -143,7 +140,11 @@ class NotificationPreferences extends Page implements HasForms
             $safe = $this->safeKey($key);
             $row = $submitted[$safe] ?? [];
 
-            foreach ($type->allowedChannels as $channel) {
+            // Persist only the channels the user is actually allowed to
+            // toggle. If admin re-enables a channel later, the user's
+            // existing row reflects the last explicit choice; otherwise
+            // the type's default kicks in.
+            foreach ($resolver->allowedChannelsFor($key, $tenantId) as $channel) {
                 UserNotificationPreference::set(
                     userId: $user->getKey(),
                     typeKey: $key,
@@ -160,6 +161,34 @@ class NotificationPreferences extends Page implements HasForms
             ->send();
     }
 
+    // ------------------------------------------------------------------
+    // BuildsNotificationPrefsLayout abstracts
+    // ------------------------------------------------------------------
+
+    protected function statePathPrefix(): string
+    {
+        return 'prefs';
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    protected function channelsForType(NotificationType $type): array
+    {
+        $tenantId = app(TenantResolver::class)->currentId();
+
+        return app(NotificationContentResolver::class)->allowedChannelsFor($type->key, $tenantId);
+    }
+
+    protected function isToggleDisabled(NotificationType $type): bool
+    {
+        return $type->mandatory;
+    }
+
+    // ------------------------------------------------------------------
+    // Internals
+    // ------------------------------------------------------------------
+
     protected function loadExplicit(int|string|null $userId, string $typeKey): array
     {
         if ($userId === null) {
@@ -175,22 +204,24 @@ class NotificationPreferences extends Page implements HasForms
     }
 
     /**
-     * Turn a dotted type key like "approval.request.action_needed" into a
-     * form-safe slug like "approval_request_action_needed". Form state paths
-     * use dots as separators, so keeping type keys out of the path avoids
-     * nesting surprises.
+     * @return array<int|string, string>
      */
-    protected function safeKey(string $key): string
+    public function getBreadcrumbs(): array
     {
-        return str_replace('.', '_', $key);
-    }
+        $breadcrumbs = [];
 
-    protected function channelLabel(string $channel): string
-    {
-        return match ($channel) {
-            'push' => 'Push',
-            'email' => 'Email',
-            default => Str::headline($channel),
-        };
+        $group = static::getNavigationGroup();
+
+        if ($group instanceof UnitEnum) {
+            $group = $group->name;
+        }
+
+        if (is_string($group) && $group !== '') {
+            $breadcrumbs[] = $group;
+        }
+
+        $breadcrumbs[] = static::getNavigationLabel() ?: (static::$title ?? 'Notifications');
+
+        return $breadcrumbs;
     }
 }

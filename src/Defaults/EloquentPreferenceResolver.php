@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Devletes\NotificationsMax\Defaults;
 
 use Devletes\NotificationsMax\Contracts\PreferenceResolver;
+use Devletes\NotificationsMax\Contracts\TenantResolver;
 use Devletes\NotificationsMax\Registry\NotificationTypeRegistry;
+use Devletes\NotificationsMax\Services\NotificationContentResolver;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -41,7 +43,11 @@ class EloquentPreferenceResolver implements PreferenceResolver
 {
     protected static ?bool $tableExists = null;
 
-    public function __construct(protected NotificationTypeRegistry $registry) {}
+    public function __construct(
+        protected NotificationTypeRegistry $registry,
+        protected NotificationContentResolver $contentResolver,
+        protected TenantResolver $tenantResolver,
+    ) {}
 
     /**
      * @return array<int, string>
@@ -54,15 +60,32 @@ class EloquentPreferenceResolver implements PreferenceResolver
             return $this->expandLogicalChannels($type->allowedChannels);
         }
 
+        // Admin's allowance for this (tenant, type) is the upper bound.
+        // In config-source mode, the resolver returns the type's
+        // allowed_channels straight from config — semantically a no-op
+        // but it keeps the preference resolver agnostic of the source.
+        $tenantId = $this->resolveTenantId($user);
+        $allowed = $this->contentResolver->allowedChannelsFor($typeKey, $tenantId);
+
+        if ($allowed === []) {
+            // Admin disabled all channels for this type. Nothing fires
+            // (mandatory short-circuited above; this can only happen for
+            // optional types).
+            return [];
+        }
+
         // If the preferences table hasn't been migrated yet, fall back to
-        // the type's defaults so fresh installs still deliver notifications.
+        // the type's defaults so fresh installs still deliver notifications
+        // — but still respect the admin allowance ceiling.
         if (! $this->preferencesTableExists()) {
-            return $this->expandLogicalChannels($type->defaultChannels);
+            $defaults = array_values(array_intersect($type->defaultChannels, $allowed));
+
+            return $this->expandLogicalChannels($defaults);
         }
 
         $explicit = $this->loadExplicit($user, $typeKey);
 
-        $logical = collect($type->allowedChannels)
+        $logical = collect($allowed)
             ->filter(function (string $channel) use ($type, $explicit) {
                 if (array_key_exists($channel, $explicit)) {
                     return (bool) $explicit[$channel];
@@ -77,34 +100,54 @@ class EloquentPreferenceResolver implements PreferenceResolver
     }
 
     /**
-     * Expand logical channel names (push, email) into the physical Laravel
-     * notification channels (database, broadcast, mail). Unrecognised names
-     * are passed through unchanged so host apps can use physical channels
-     * directly if they want to bypass the mapping for a specific type.
+     * Expand logical channel names (push, email, …) into the physical Laravel
+     * notification channels (database, broadcast, mail) declared by each
+     * channel's `physical` config key. Unrecognised names pass through
+     * unchanged so host apps can use physical channels directly if they
+     * bypass the registry for a specific type.
      *
      * @param  array<int, string>  $logical
      * @return array<int, string>
      */
     protected function expandLogicalChannels(array $logical): array
     {
-        $map = config('notifications-max.channels', [
-            'push' => ['database', 'broadcast'],
-            'email' => ['mail'],
-        ]);
+        $channels = config('notifications-max.channels', []);
 
         $physical = [];
 
         foreach ($logical as $channel) {
-            if (isset($map[$channel]) && is_array($map[$channel])) {
-                $physical = array_merge($physical, $map[$channel]);
+            $def = $channels[$channel] ?? null;
+
+            if (is_array($def) && isset($def['physical']) && is_array($def['physical'])) {
+                $physical = array_merge($physical, $def['physical']);
 
                 continue;
             }
 
+            // No registry entry — caller is using a physical channel name
+            // directly, or a custom channel without a registry definition.
             $physical[] = $channel;
         }
 
         return array_values(array_unique($physical));
+    }
+
+    protected function resolveTenantId(Authenticatable $user): ?int
+    {
+        $bound = $this->tenantResolver->currentId();
+
+        if ($bound !== null) {
+            return $bound;
+        }
+
+        // Queue worker context: no panel-bound tenant. Fall back to the
+        // recipient's own tenant_id when present so admin overrides
+        // resolve correctly even outside HTTP requests.
+        if (isset($user->tenant_id) && is_numeric($user->tenant_id)) {
+            return (int) $user->tenant_id;
+        }
+
+        return null;
     }
 
     /**
