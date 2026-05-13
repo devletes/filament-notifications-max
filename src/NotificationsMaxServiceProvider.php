@@ -40,8 +40,6 @@ class NotificationsMaxServiceProvider extends PackageServiceProvider
             ->hasMigrations([
                 'create_user_notification_preferences_table',
                 'create_broadcast_notifications_table',
-                'add_status_to_broadcast_notifications_table',
-                'convert_broadcast_notifications_to_int_pk',
                 'create_notification_type_overrides_table',
             ])
             ->hasCommand(\Devletes\NotificationsMax\Console\SeedContentCommand::class);
