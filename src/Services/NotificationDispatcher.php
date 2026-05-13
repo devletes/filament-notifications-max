@@ -6,6 +6,7 @@ namespace Devletes\NotificationsMax\Services;
 
 use Devletes\NotificationsMax\Contracts\TenantResolver;
 use Devletes\NotificationsMax\Notifications\GenericNotification;
+use Devletes\NotificationsMax\Registry\NotificationType;
 use Devletes\NotificationsMax\Registry\NotificationTypeRegistry;
 use Illuminate\Broadcasting\BroadcastException;
 use Illuminate\Contracts\Auth\Authenticatable;
@@ -13,6 +14,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\RateLimiter;
 
 /**
  * The single public entry point for domain code that wants to emit a
@@ -58,6 +60,17 @@ class NotificationDispatcher
         $context = $this->enrichContext($context, $users);
 
         $this->assertSingleTenant($users, $context);
+
+        // Rate limiting filters recipients individually so a partially-
+        // throttled audience still receives the notification for the
+        // recipients who are under their limit. Mandatory types bypass.
+        if (! $type->mandatory) {
+            $users = $this->filterByRateLimit($users, $type);
+
+            if ($users->isEmpty()) {
+                return;
+            }
+        }
 
         // Laravel's notification sender iterates channels in via() order
         // (database first, broadcast second, mail last, per our config/channels
@@ -188,6 +201,97 @@ class NotificationDispatcher
         }
 
         return $context;
+    }
+
+    /**
+     * Filter the recipient collection down to users who are under their
+     * per-(user, type) rate limit. Each surviving recipient's counter is
+     * incremented as a side effect — calling `filter` plus `hit` in the
+     * same pass keeps the check + record atomic from the dispatcher's
+     * point of view.
+     *
+     * Returns the collection unchanged when no rate limit applies (type
+     * declares no rate limit and the global default is disabled).
+     */
+    protected function filterByRateLimit(Collection $users, NotificationType $type): Collection
+    {
+        $config = $this->resolveRateLimitConfig($type);
+
+        if ($config === null) {
+            return $users;
+        }
+
+        [$max, $perSeconds] = $config;
+
+        return $users->filter(function ($user) use ($type, $max, $perSeconds): bool {
+            $userId = $this->userIdFor($user);
+
+            // Can't rate-limit an unidentified notifiable — pass through
+            // rather than silently drop. Caller is responsible for either
+            // hydrating identifiable models or accepting the bypass.
+            if ($userId === null) {
+                return true;
+            }
+
+            $key = "notif-throttle:{$userId}:{$type->key}";
+
+            if (RateLimiter::tooManyAttempts($key, $max)) {
+                return false;
+            }
+
+            RateLimiter::hit($key, $perSeconds);
+
+            return true;
+        })->values();
+    }
+
+    /**
+     * Resolve the effective rate-limit config for a type. Per-type entry
+     * (`NotificationType::$rateLimit`) wins over the package's
+     * `notifications-max.rate_limits.default` map. Returns null when
+     * `max` is zero or negative — semantically "unlimited" — so the
+     * dispatcher can short-circuit the per-user filter loop entirely.
+     *
+     * @return array{int, int}|null  [max attempts, window in seconds]
+     */
+    protected function resolveRateLimitConfig(NotificationType $type): ?array
+    {
+        $config = $type->rateLimit ?? config('notifications-max.rate_limits.default', []);
+
+        if (! is_array($config)) {
+            return null;
+        }
+
+        $max = (int) ($config['max'] ?? 0);
+
+        if ($max <= 0) {
+            return null;
+        }
+
+        // Enforce a sensible minimum window so a misconfigured 0-minute
+        // entry doesn't produce a divide-by-zero or 0-TTL cache write.
+        $perMinutes = max(1, (int) ($config['per_minutes'] ?? 5));
+
+        return [$max, $perMinutes * 60];
+    }
+
+    /**
+     * Best-effort id extraction. Filament users implement Authenticatable,
+     * but the dispatcher accepts any notifiable shape — fall back to a
+     * direct `->id` read for plain Eloquent models that don't expose the
+     * auth identifier.
+     */
+    protected function userIdFor(mixed $user): int|string|null
+    {
+        if (! is_object($user)) {
+            return null;
+        }
+
+        if (method_exists($user, 'getAuthIdentifier')) {
+            return $user->getAuthIdentifier();
+        }
+
+        return $user->id ?? null;
     }
 
     /**
