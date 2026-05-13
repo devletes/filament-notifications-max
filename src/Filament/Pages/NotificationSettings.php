@@ -498,28 +498,78 @@ class NotificationSettings extends Page implements HasForms
 
     /**
      * Persist submitted modal data to the (tenant, type) override row.
-     * Stored as a channel-keyed JSON object so the resolver can read it
-     * with no further reshaping.
+     *
+     * Only fields that DIFFER from the type's config-level value are
+     * persisted; fields the admin "kept the default" are stored as
+     * absent. The resolver's NULL → config fallback then means those
+     * fields continue to track config changes — e.g. if the host
+     * updates a default title later, types whose admin agreed with the
+     * old default pick up the new one rather than staying frozen on
+     * what was visible the day they saved.
+     *
+     * Trade-off: an admin who deliberately wants to PIN a value that
+     * happens to match config today must change the value (anything
+     * else stored as a diff) — there is no UI distinction between
+     * "kept default" and "explicitly chose the same string". For most
+     * settings-style content this is the desired behaviour.
      *
      * @param  array<string, array<string, mixed>>  $data
      */
     protected function saveContent(NotificationType $type, array $data): void
     {
-        if (! app(NotificationContentResolver::class)->shouldUseDatabase()) {
+        $resolver = app(NotificationContentResolver::class);
+
+        if (! $resolver->shouldUseDatabase()) {
             return;
         }
 
         $tenantId = app(TenantResolver::class)->currentId();
+        $diff = $this->diffAgainstConfig($type, $data);
 
         $override = NotificationTypeOverride::query()
             ->firstOrNew(['tenant_id' => $tenantId, 'type_key' => $type->key]);
 
         $override->tenant_id = $tenantId;
         $override->type_key = $type->key;
-        $override->channel_content = $data;
+        $override->channel_content = $diff;
         $override->save();
 
-        app(NotificationContentResolver::class)->flushCache();
+        $resolver->flushCache();
+    }
+
+    /**
+     * Filter submitted channel content down to fields whose value differs
+     * from what the resolver would produce in config-only mode. Empty
+     * strings and nulls are dropped (they resolve as no-override anyway,
+     * matching the resolver's `!== null && !== ''` guard).
+     *
+     * @param  array<string, array<string, mixed>>  $data
+     * @return array<string, array<string, mixed>>
+     */
+    protected function diffAgainstConfig(NotificationType $type, array $data): array
+    {
+        $resolver = app(NotificationContentResolver::class);
+        $diff = [];
+
+        foreach ($data as $channel => $fields) {
+            if (! is_array($fields)) {
+                continue;
+            }
+
+            foreach ($fields as $field => $value) {
+                if ($value === null || $value === '') {
+                    continue;
+                }
+
+                if ($value === $resolver->configValueFor($type, (string) $channel, (string) $field)) {
+                    continue;
+                }
+
+                $diff[$channel][$field] = $value;
+            }
+        }
+
+        return $diff;
     }
 
     /**

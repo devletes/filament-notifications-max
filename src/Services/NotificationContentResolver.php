@@ -178,6 +178,25 @@ class NotificationContentResolver
     }
 
     /**
+     * The value the resolver would return for this (channel, field) when
+     * no DB override is in play — i.e. the type's config-level value
+     * with the same fallback chain {@see resolveField()} applies. Exposed
+     * publicly so the admin settings page can compute "is this submitted
+     * value identical to what config would produce?" without having to
+     * duplicate the fallback rules.
+     */
+    public function configValueFor(NotificationType $type, string $channel, string $field): mixed
+    {
+        $configChannelContent = $type->content[$channel] ?? [];
+
+        if (array_key_exists($field, $configChannelContent)) {
+            return $configChannelContent[$field];
+        }
+
+        return $this->fallbackFromTopLevel($field, $channel, $type);
+    }
+
+    /**
      * Drop in-request override cache. Useful in tests / long-running
      * commands that mutate the table after first read.
      */
@@ -220,11 +239,7 @@ class NotificationContentResolver
             }
         }
 
-        if (array_key_exists($field, $configChannelContent)) {
-            return $configChannelContent[$field];
-        }
-
-        return $this->fallbackFromTopLevel($field, $channel, $type);
+        return $this->configValueFor($type, $channel, $field);
     }
 
     /**
