@@ -108,10 +108,19 @@ class AudienceRelationManager extends RelationManager
         // in the table yet, so we skip the subquery and let every user
         // fall back to the "unread" default.
         if ($broadcast->isSent()) {
+            $userClass = $this->userClass();
+            $userTable = $this->userTable();
+
             $query->addSelect([
+                // Filter by notifiable_type so the subquery doesn't match
+                // a row belonging to a non-User notifiable that happens to
+                // share an id. The qualified column name resolves the user
+                // table from the configured model so host apps with a
+                // non-standard table name still get a correct join.
                 'broadcast_read_at' => DB::table('notifications')
                     ->select('read_at')
-                    ->whereColumn('notifications.notifiable_id', 'users.id')
+                    ->whereColumn('notifications.notifiable_id', $userTable.'.id')
+                    ->where('notifications.notifiable_type', $userClass)
                     ->where('notifications.data->broadcast_id', $broadcast->getKey())
                     ->orderByDesc('notifications.created_at')
                     ->limit(1),
@@ -119,6 +128,29 @@ class AudienceRelationManager extends RelationManager
         }
 
         return $query;
+    }
+
+    /**
+     * FQCN of the host's User model. Resolved from
+     * `config('auth.providers.users.model')` so the audience subquery and
+     * search closures pick up the correct class without hardcoding.
+     *
+     * @return class-string<Model>
+     */
+    protected function userClass(): string
+    {
+        return (string) config('auth.providers.users.model');
+    }
+
+    /**
+     * Database table backing the host's User model. Cached so we don't
+     * instantiate a new model just to read `getTable()` on every render.
+     */
+    protected function userTable(): string
+    {
+        $class = $this->userClass();
+
+        return (new $class)->getTable();
     }
 
     public function table(Table $table): Table
@@ -186,14 +218,16 @@ class AudienceRelationManager extends RelationManager
      */
     protected function getNameColumn(): Column
     {
+        $userTable = $this->userTable();
+
         return TextColumn::make('name')
             ->label('Name')
             ->searchable(query: fn (Builder $query, string $search): Builder => $query
                 ->where(fn (Builder $q) => $q
-                    ->orWhere('users.email', 'like', "%{$search}%")
-                    ->when(Schema::hasColumn('users', 'name'), fn (Builder $q): Builder => $q->orWhere('users.name', 'like', "%{$search}%"))
-                    ->when(Schema::hasColumn('users', 'first_name'), fn (Builder $q): Builder => $q->orWhere('users.first_name', 'like', "%{$search}%"))
-                    ->when(Schema::hasColumn('users', 'last_name'), fn (Builder $q): Builder => $q->orWhere('users.last_name', 'like', "%{$search}%"))
+                    ->orWhere("{$userTable}.email", 'like', "%{$search}%")
+                    ->when(Schema::hasColumn($userTable, 'name'), fn (Builder $q): Builder => $q->orWhere("{$userTable}.name", 'like', "%{$search}%"))
+                    ->when(Schema::hasColumn($userTable, 'first_name'), fn (Builder $q): Builder => $q->orWhere("{$userTable}.first_name", 'like', "%{$search}%"))
+                    ->when(Schema::hasColumn($userTable, 'last_name'), fn (Builder $q): Builder => $q->orWhere("{$userTable}.last_name", 'like', "%{$search}%"))
                 )
             );
     }

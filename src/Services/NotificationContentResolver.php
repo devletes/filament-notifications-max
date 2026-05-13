@@ -44,6 +44,14 @@ class NotificationContentResolver
      */
     protected array $overrideCache = [];
 
+    /**
+     * Memoised result of the `content_source = database` config check.
+     * Read on the hot path (every channel render); the underlying config()
+     * call is cheap but called repeatedly per dispatch, so we cache it
+     * on the resolver instance.
+     */
+    protected ?bool $useDatabaseCache = null;
+
     public function __construct(
         protected NotificationTypeRegistry $registry,
     ) {}
@@ -166,7 +174,7 @@ class NotificationContentResolver
 
     public function shouldUseDatabase(): bool
     {
-        return config('notifications-max.content_source') === 'database';
+        return $this->useDatabaseCache ??= config('notifications-max.content_source') === 'database';
     }
 
     /**
@@ -176,6 +184,7 @@ class NotificationContentResolver
     public function flushCache(): void
     {
         $this->overrideCache = [];
+        $this->useDatabaseCache = null;
     }
 
     protected function loadOverride(?int $tenantId, string $typeKey): ?NotificationTypeOverride

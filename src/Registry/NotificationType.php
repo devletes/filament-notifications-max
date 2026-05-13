@@ -144,8 +144,12 @@ final class NotificationType
             actionRecordKey: $config['action_record_key'] ?? null,
             duration: is_int($duration) || $duration === 'persistent' ? $duration : null,
             actions: array_values((array) ($config['actions'] ?? [])),
-            defaultChannels: $config['default_channels'] ?? $defaults['default_channels'] ?? ['database', 'broadcast'],
-            allowedChannels: $config['allowed_channels'] ?? $defaults['allowed_channels'] ?? ['database', 'broadcast', 'mail'],
+            // Logical channel names — match the rest of the package and the
+            // `type_defaults` block in config. Physical-channel expansion
+            // (push → database+broadcast, email → mail, …) happens later in
+            // EloquentPreferenceResolver::expandLogicalChannels().
+            defaultChannels: $config['default_channels'] ?? $defaults['default_channels'] ?? ['push'],
+            allowedChannels: $config['allowed_channels'] ?? $defaults['allowed_channels'] ?? ['push', 'email'],
             mandatory: (bool) ($config['mandatory'] ?? false),
             rateLimit: $config['rate_limit'] ?? null,
             notificationClass: $config['notification_class'] ?? null,

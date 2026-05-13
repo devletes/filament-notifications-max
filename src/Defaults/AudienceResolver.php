@@ -152,9 +152,23 @@ class AudienceResolver implements BroadcastAudienceResolver
         return $query;
     }
 
+    /**
+     * Schema-column lookups cached across keystrokes. The picker's
+     * `searchable` callback fires on every input event, so re-checking
+     * `Schema::hasColumn` per keystroke was the dominant cost on the
+     * Audience field's autocomplete path. Static so the cache survives
+     * resolver re-instantiation within the same process.
+     *
+     * @var array<string, bool>
+     */
+    protected static array $columnExistsCache = [];
+
     protected function hasAttribute(Model $model, string $column): bool
     {
-        return Schema::hasColumn($model->getTable(), $column);
+        $table = $model->getTable();
+        $cacheKey = "{$table}.{$column}";
+
+        return static::$columnExistsCache[$cacheKey] ??= Schema::hasColumn($table, $column);
     }
 
     protected function labelFor(Model $user): string

@@ -208,11 +208,10 @@ class NotificationCenter extends Page implements HasTable
                             return $query->whereRaw('0 = 1');
                         }
 
-                        return $query->where(function (Builder $q) use ($keys): void {
-                            foreach ($keys as $key) {
-                                $q->orWhere('data->_meta->type_key', $key);
-                            }
-                        });
+                        // JSON-path IN clause: a single whereIn is cleaner and
+                        // a touch more index-friendly than an OR chain of equal
+                        // checks, with identical semantics.
+                        return $query->whereIn('data->_meta->type_key', $keys);
                     }),
             ])
             ->recordActions([
@@ -237,13 +236,37 @@ class NotificationCenter extends Page implements HasTable
                         ->label('Mark as read')
                         ->icon('heroicon-o-check')
                         ->color('gray')
-                        ->action(fn (Collection $records) => $records->each->markAsRead())
+                        // Single UPDATE keyed by the selected ids — `$records->each`
+                        // would issue N UPDATEs (one per row, with a SELECT-before-
+                        // SAVE round trip), which scales badly on heavy selections.
+                        // `whereNull('read_at')` preserves the original semantics
+                        // of `markAsRead()` (no-op on already-read rows) so we
+                        // don't overwrite the existing read timestamp.
+                        ->action(function (Collection $records): void {
+                            if ($records->isEmpty()) {
+                                return;
+                            }
+
+                            DatabaseNotification::query()
+                                ->whereIn('id', $records->modelKeys())
+                                ->whereNull('read_at')
+                                ->update(['read_at' => now()]);
+                        })
                         ->deselectRecordsAfterCompletion(),
                     BulkAction::make('markAsUnread')
                         ->label('Mark as unread')
                         ->icon('heroicon-o-arrow-uturn-left')
                         ->color('gray')
-                        ->action(fn (Collection $records) => $records->each->markAsUnread())
+                        ->action(function (Collection $records): void {
+                            if ($records->isEmpty()) {
+                                return;
+                            }
+
+                            DatabaseNotification::query()
+                                ->whereIn('id', $records->modelKeys())
+                                ->whereNotNull('read_at')
+                                ->update(['read_at' => null]);
+                        })
                         ->deselectRecordsAfterCompletion(),
                     DeleteBulkAction::make()
                         ->requiresConfirmation(),
@@ -266,8 +289,13 @@ class NotificationCenter extends Page implements HasTable
 
         // `$user->notifications()` returns Builder for the morph relation
         // restricted to this notifiable — exactly the scoping we want.
-        // Filter to filament-format rows only; other Laravel notifications
-        // (system mails, broadcasts from other packages) shouldn't appear.
+        //
+        // Filter to filament-format rows only. Other Laravel notifications
+        // written to the same table by unrelated packages (e.g. plain
+        // Notifiable::notify() calls outside this package) won't carry
+        // `data.format = 'filament'`, and surface in those packages' own
+        // UIs instead of this center. Subclass + override `getTableQuery()`
+        // if you want to widen the filter.
         return $user->notifications()
             ->getQuery()
             ->where('data->format', 'filament');

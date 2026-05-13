@@ -166,6 +166,22 @@ class BroadcastNotificationResource extends Resource
         // Inline labels (label and value on the same line) are applied at
         // the schema level so every entry in this infolist inherits them
         // — avoids sprinkling ->inlineLabel() across every TextEntry.
+        //
+        // Every entry sources its value via an explicit `state()` callback
+        // that pulls from the resolved BroadcastNotification record. This is
+        // deliberate: it makes the infolist *embed-safe*. Filament's
+        // implicit name-based state lookup (`TextEntry::make('status')` with
+        // no `state()`) walks the schema container chain to find a record,
+        // and that walk can land on a *different* outer record when this
+        // infolist is embedded inside another schema (e.g. a host app's
+        // task-modal that has its own outer record). Field names like
+        // `status` and `channels` collide with common host-app columns,
+        // turning a silent wrong-data bug into a hard TypeError when
+        // strict-typed format/color closures see the wrong shape. Explicit
+        // `state()` injects `$record` via Filament's parameter resolution,
+        // which respects the model bound on the parent component — so the
+        // entry always reads from the broadcast itself, regardless of where
+        // the infolist is rendered.
         return $schema
             ->inlineLabel()
             ->components([
@@ -177,21 +193,27 @@ class BroadcastNotificationResource extends Resource
                         Section::make('Message')
                             ->columnSpan(3)
                             ->schema([
-                                TextEntry::make('subject'),
-                                TextEntry::make('body'),
+                                TextEntry::make('subject')
+                                    ->state(fn (?BroadcastNotification $record): ?string => $record?->subject),
+                                TextEntry::make('body')
+                                    ->state(fn (?BroadcastNotification $record): ?string => $record?->body),
                                 TextEntry::make('action_url')
                                     ->label('Call-to-action URL')
-                                    ->url(fn (BroadcastNotification $record): ?string => $record->action_url)
+                                    ->state(fn (?BroadcastNotification $record): ?string => $record?->action_url)
+                                    ->url(fn (?BroadcastNotification $record): ?string => $record?->action_url)
                                     ->openUrlInNewTab()
                                     ->placeholder('—'),
                                 TextEntry::make('action_label')
                                     ->label('Button label')
+                                    ->state(fn (?BroadcastNotification $record): ?string => $record?->action_label)
                                     ->placeholder('—'),
                                 TextEntry::make('creator.name')
                                     ->label('Created by')
+                                    ->state(fn (?BroadcastNotification $record): ?string => $record?->creator?->name)
                                     ->placeholder('—'),
                                 TextEntry::make('created_at')
                                     ->label('Created at')
+                                    ->state(fn (?BroadcastNotification $record) => $record?->created_at)
                                     ->dateTime('M j, Y H:i'),
                             ]),
 
@@ -203,22 +225,27 @@ class BroadcastNotificationResource extends Resource
                                     ->label('Channels')
                                     ->badge()
                                     ->color('gray')
+                                    ->state(fn (?BroadcastNotification $record): ?array => $record?->channels)
                                     ->formatStateUsing(fn (string $state): string => Str::headline($state)),
                                 TextEntry::make('status')
                                     ->label('Status')
                                     ->badge()
-                                    ->formatStateUsing(fn (string $state): string => static::statusLabel($state))
-                                    ->color(fn (string $state): string => static::statusColor($state)),
+                                    ->state(fn (?BroadcastNotification $record): ?string => $record?->status)
+                                    ->formatStateUsing(fn (?string $state): string => $state ? static::statusLabel($state) : '—')
+                                    ->color(fn (?string $state): string => $state ? static::statusColor($state) : 'gray'),
                                 TextEntry::make('scheduled_at')
                                     ->label('Scheduled')
+                                    ->state(fn (?BroadcastNotification $record) => $record?->scheduled_at)
                                     ->dateTime('M j, Y H:i')
                                     ->placeholder('Immediate'),
                                 TextEntry::make('sent_at')
                                     ->label('Sent')
+                                    ->state(fn (?BroadcastNotification $record) => $record?->sent_at)
                                     ->dateTime('M j, Y H:i')
                                     ->placeholder('—'),
                                 TextEntry::make('recipients_count')
                                     ->label('Recipients')
+                                    ->state(fn (?BroadcastNotification $record): ?int => $record?->recipients_count)
                                     ->numeric()
                                     ->placeholder('—'),
                             ]),
@@ -379,6 +406,12 @@ class BroadcastNotificationResource extends Resource
      * Channel options for the create/edit form, filtered to the
      * `broadcast.admin_custom` type's `allowed_channels`.
      *
+     * Labels resolve from the channel registry
+     * (`notifications-max.channels.{channel}.label`) so host-added channels
+     * (sms, slack, …) pick up their configured label without touching this
+     * method. Falls back to a humanised version of the channel key when the
+     * registry doesn't declare one.
+     *
      * @return array<string, string>
      */
     public static function allowedChannelOptions(): array
@@ -386,11 +419,13 @@ class BroadcastNotificationResource extends Resource
         $type = app(NotificationTypeRegistry::class)->find('broadcast.admin_custom');
 
         return collect($type->allowedChannels)
-            ->mapWithKeys(fn (string $c): array => [$c => match ($c) {
-                'push' => 'Push',
-                'email' => 'Email',
-                default => Str::headline($c),
-            }])
+            ->mapWithKeys(function (string $c): array {
+                $label = config("notifications-max.channels.{$c}.label");
+
+                return [$c => is_string($label) && $label !== ''
+                    ? $label
+                    : Str::headline($c)];
+            })
             ->all();
     }
 

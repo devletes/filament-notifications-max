@@ -352,6 +352,12 @@ return [
     |   …) extend the default class, override getColumns() or
     |   getAdditionalColumns(), and point this key at the subclass.
     |
+    | chunk_size
+    |   Number of recipients SendBroadcastJob loads per database round trip
+    |   while fanning out. Defaults to 100; raise for installs with very
+    |   large audiences (memory headroom permitting), lower for memory-
+    |   constrained workers or to spread broadcast bursts more gently.
+    |
     | model
     |   Fully-qualified Eloquent class Filament uses to hydrate, create, and
     |   list broadcast rows. Defaults to the package's own BroadcastNotification.
@@ -407,6 +413,8 @@ return [
         'release_pipeline' => \Devletes\NotificationsMax\Defaults\ImmediateBroadcastReleasePipeline::class,
 
         'audience_relation_manager' => \Devletes\NotificationsMax\Filament\Resources\BroadcastNotifications\RelationManagers\AudienceRelationManager::class,
+
+        'chunk_size' => 100,
 
         'initial_status' => 'draft',
 

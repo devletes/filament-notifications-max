@@ -2,6 +2,8 @@
 /node_modules
 /.idea
 /.vscode
+/.claude
+/AGENTS.md
 composer.lock
 .phpunit.result.cache
 .phpunit.cache

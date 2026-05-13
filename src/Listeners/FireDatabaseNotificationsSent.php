@@ -58,10 +58,11 @@ class FireDatabaseNotificationsSent
         // still sees their notification on the next bell poll (30s polling
         // fallback), they just miss the real-time push for this one event.
         //
-        // The exception is caught here rather than in NotificationDispatcher
-        // because GenericNotification uses `afterCommit` — the actual send
-        // (and any broadcast failure) fires from a post-commit callback,
-        // outside the dispatcher's own try/catch call frame.
+        // The catch is BroadcastException-specific (rather than the broader
+        // Throwable net the dispatcher uses) so we can log a meaningful
+        // "real-time bell refresh failed" message instead of attributing
+        // the failure to the notification itself. Other exceptions still
+        // propagate to the dispatcher's outer handler.
         try {
             DatabaseNotificationsSent::dispatch($event->notifiable);
         } catch (BroadcastException $e) {

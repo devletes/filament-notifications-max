@@ -93,7 +93,11 @@ class NotificationDispatcher
     {
         $class = $notificationClass ?? GenericNotification::class;
 
-        if (! is_subclass_of($class, \Illuminate\Notifications\Notification::class) && $class !== GenericNotification::class) {
+        // `is_a($class, $base, allow_string: true)` matches both the class
+        // itself and any subclass — covers GenericNotification and host
+        // subclasses uniformly without the awkward OR-with-equality dance
+        // the previous check needed.
+        if (! is_a($class, \Illuminate\Notifications\Notification::class, true)) {
             throw new \RuntimeException(sprintf(
                 'Notification class [%s] for type [%s] must extend Illuminate\\Notifications\\Notification.',
                 $class,

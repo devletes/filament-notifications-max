@@ -111,6 +111,6 @@ class RoleBasedBroadcastAudienceResolver implements BroadcastAudienceResolver
             return [];
         }
 
-        return array_values(array_map('intval', array_filter($raw, 'is_numeric')));
+        return array_values(array_unique(array_map('intval', array_filter($raw, 'is_numeric'))));
     }
 }

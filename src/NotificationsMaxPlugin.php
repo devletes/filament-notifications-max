@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace Devletes\NotificationsMax;
 
+use Composer\InstalledVersions;
 use Devletes\NotificationsMax\Filament\Pages\NotificationCenter;
 use Devletes\NotificationsMax\Filament\Pages\NotificationPreferences;
 use Devletes\NotificationsMax\Filament\Pages\NotificationSettings;
 use Devletes\NotificationsMax\Filament\Resources\BroadcastNotifications\BroadcastNotificationResource;
 use Filament\Contracts\Plugin;
 use Filament\Panel;
+use UnitEnum;
 
 class NotificationsMaxPlugin implements Plugin
 {
@@ -21,7 +23,7 @@ class NotificationsMaxPlugin implements Plugin
 
     protected bool $broadcaster = false;
 
-    protected ?string $broadcasterNavigationGroup = null;
+    protected string|UnitEnum|null $broadcasterNavigationGroup = null;
 
     protected bool $multiTenant = false;
 
@@ -144,10 +146,10 @@ class NotificationsMaxPlugin implements Plugin
      * Override the sidebar navigation group under which
      * {@see BroadcastNotificationResource} appears. Defaults to
      * "Notifications". Host apps pass an existing group label ("Content",
-     * "Settings", etc.) to slot the resource into their own information
-     * architecture.
+     * "Settings", etc.) or a UnitEnum case from their navigation group
+     * enum to slot the resource into their own information architecture.
      */
-    public function broadcasterNavigationGroup(?string $group): static
+    public function broadcasterNavigationGroup(string|UnitEnum|null $group): static
     {
         $this->broadcasterNavigationGroup = $group;
 
@@ -185,9 +187,33 @@ class NotificationsMaxPlugin implements Plugin
         return $this->broadcaster;
     }
 
-    public function getBroadcasterNavigationGroup(): ?string
+    public function getBroadcasterNavigationGroup(): string|UnitEnum|null
     {
         return $this->broadcasterNavigationGroup;
+    }
+
+    /**
+     * Installed version of the package, sourced from Composer's runtime
+     * metadata. Returns the resolved version string when installed via
+     * Composer (e.g. "0.2.0", "dev-main"), or "unknown" if the runtime
+     * metadata isn't available — e.g. when the package is being executed
+     * outside Composer's autoloader during testing.
+     */
+    public function getVersion(): string
+    {
+        if (! class_exists(InstalledVersions::class)) {
+            return 'unknown';
+        }
+
+        try {
+            $version = InstalledVersions::getPrettyVersion('devletes/filament-notifications-max');
+        } catch (\OutOfBoundsException) {
+            // Package isn't registered with the installed versions list —
+            // typically only happens in early-boot edge cases.
+            return 'unknown';
+        }
+
+        return $version ?? 'unknown';
     }
 
     public function isMultiTenant(): bool

@@ -36,7 +36,7 @@ use Illuminate\Support\Str;
  * can declare a per-type `notification_class` that extends this one and
  * opts into `ShouldQueue`.
  */
-final class GenericNotification extends Notification
+class GenericNotification extends Notification
 {
     /**
      * @param  array<string, mixed>  $context  Placeholders + routing data
