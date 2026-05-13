@@ -295,23 +295,27 @@ class NotificationDispatcher
     }
 
     /**
-     * Defensive check: all recipients must share the same `tenant_id`. Having
-     * a Collection span tenants in a single dispatch is always a bug — either
-     * someone mis-scoped a query, or they're reusing a dispatch for multiple
-     * tenants. Throw early so it surfaces in development.
+     * Defensive check: all recipients must share the same `tenant_id`. A
+     * dispatch that spans tenants is always a bug — someone mis-scoped a
+     * query, or they're reusing a dispatch across multiple tenants.
+     *
+     * Counts null as a distinct value so a mixed (tenanted + null) list
+     * also fails the check — a null-tenant user landing in a tenanted
+     * dispatch is just as likely to be a scoping bug as two non-null
+     * tenants. Single-tenant installs see every recipient with null,
+     * which is one unique value → passes.
      */
     protected function assertSingleTenant(Collection $users, array $context): void
     {
         $tenantIds = $users
             ->map(fn ($u) => $u->tenant_id ?? null)
-            ->reject(fn ($v) => $v === null)
             ->unique()
             ->values();
 
         if ($tenantIds->count() > 1) {
             throw new \RuntimeException(sprintf(
                 'NotificationDispatcher: recipients span multiple tenants [%s]. Split dispatch per tenant.',
-                $tenantIds->implode(', '),
+                $tenantIds->map(fn ($id) => $id === null ? 'null' : (string) $id)->implode(', '),
             ));
         }
     }

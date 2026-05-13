@@ -275,8 +275,18 @@ class GenericNotification extends Notification
 
     /**
      * Resolve a registered email template name to its Blade view path.
-     * Returns null when the template registry is empty or the name isn't
-     * known — caller falls back to the line-based MailMessage default.
+     *
+     * Resolution:
+     *   - No templates configured     → null (caller renders a line-style mail)
+     *   - Empty name (no preference)  → first registered template (default)
+     *   - Name found in the registry  → that template
+     *   - Name NOT found              → null (fall back to line-style mail)
+     *
+     * The not-found case previously silently fell back to the FIRST
+     * registered template, which masked misspelled template names — the
+     * email rendered fine but with the wrong template. Returning null
+     * instead routes through MailMessage's default `->line()` rendering
+     * so the email still sends but the typo is visible in QA.
      */
     protected function resolveEmailTemplateView(string $name): ?string
     {
@@ -286,11 +296,11 @@ class GenericNotification extends Notification
             return null;
         }
 
-        if ($name !== '' && isset($templates[$name])) {
-            return (string) $templates[$name];
+        if ($name === '') {
+            return (string) reset($templates);
         }
 
-        return (string) reset($templates);
+        return isset($templates[$name]) ? (string) $templates[$name] : null;
     }
 
     /**
