@@ -47,4 +47,20 @@ interface TenantResolver
      * Filament::setTenant($tenant) or equivalent in their implementation.
      */
     public function bindForJob(int $tenantId): void;
+
+    /**
+     * Clear any tenant context this resolver established in {@see bindForJob()}.
+     *
+     * Long-running queue workers, scheduled commands, and Octane processes
+     * pull jobs from a shared queue: without an explicit teardown, the
+     * tenant bound for job A leaks into job B's execution if job B doesn't
+     * happen to bind its own tenant. Callers (notably {@see \Devletes\NotificationsMax\Jobs\SendBroadcastJob})
+     * are expected to invoke this in a `finally` block paired with
+     * `bindForJob` so the worker returns to a clean slate.
+     *
+     * Implementations should be idempotent — calling without a prior
+     * `bindForJob` must not error. {@see \Devletes\NotificationsMax\Defaults\NullTenantResolver}
+     * is a no-op; single-tenant installs need no teardown.
+     */
+    public function unbindForJob(): void;
 }

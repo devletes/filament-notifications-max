@@ -49,4 +49,11 @@ class NullTenantResolver implements TenantResolver
     {
         // No-op. Multi-tenant installs bind their own implementation.
     }
+
+    public function unbindForJob(): void
+    {
+        // No-op. Single-tenant installs never bind, so there's nothing to
+        // clear; the symmetry exists only so callers can use the bind /
+        // unbind pair unconditionally.
+    }
 }

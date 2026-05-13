@@ -68,42 +68,50 @@ class SendBroadcastJob implements ShouldQueue
             $tenantResolver->bindForJob((int) $broadcast->tenant_id);
         }
 
-        $context = $this->buildContext($broadcast);
+        try {
+            $context = $this->buildContext($broadcast);
 
-        $totalRecipients = 0;
+            $totalRecipients = 0;
 
-        // Chunk size is configurable so installs with very large audiences
-        // can tune memory + query frequency. Falls back to 100 (the historical
-        // default) when the config key is missing or non-numeric.
-        $chunkSize = max(1, (int) config('notifications-max.broadcaster.chunk_size', 100));
+            // Chunk size is configurable so installs with very large audiences
+            // can tune memory + query frequency. Falls back to 100 (the historical
+            // default) when the config key is missing or non-numeric.
+            $chunkSize = max(1, (int) config('notifications-max.broadcaster.chunk_size', 100));
 
-        $broadcast
-            ->newQuery()
-            ->getConnection()
-            ->transaction(function () use ($broadcast, $audience, $dispatcher, $context, $chunkSize, &$totalRecipients): void {
-                // Load the full user model — `routeNotificationForMail()` (and
-                // any host-added per-channel routing methods) reads attributes
-                // off the model, so restricting columns would break the mail
-                // channel and any custom channel that depends on additional
-                // user attributes.
-                $audience
-                    ->matchingUsersQuery($broadcast->audience ?? [], $broadcast->tenant_id)
-                    ->chunkById($chunkSize, function ($chunk) use ($dispatcher, $context, &$totalRecipients): void {
-                        if ($chunk->isEmpty()) {
-                            return;
-                        }
+            $broadcast
+                ->newQuery()
+                ->getConnection()
+                ->transaction(function () use ($broadcast, $audience, $dispatcher, $context, $chunkSize, &$totalRecipients): void {
+                    // Load the full user model — `routeNotificationForMail()` (and
+                    // any host-added per-channel routing methods) reads attributes
+                    // off the model, so restricting columns would break the mail
+                    // channel and any custom channel that depends on additional
+                    // user attributes.
+                    $audience
+                        ->matchingUsersQuery($broadcast->audience ?? [], $broadcast->tenant_id)
+                        ->chunkById($chunkSize, function ($chunk) use ($dispatcher, $context, &$totalRecipients): void {
+                            if ($chunk->isEmpty()) {
+                                return;
+                            }
 
-                        $dispatcher->send('broadcast.admin_custom', $context, $chunk);
+                            $dispatcher->send('broadcast.admin_custom', $context, $chunk);
 
-                        $totalRecipients += $chunk->count();
-                    });
+                            $totalRecipients += $chunk->count();
+                        });
 
-                $broadcast->update([
-                    'status' => 'sent',
-                    'sent_at' => now(),
-                    'recipients_count' => $totalRecipients,
-                ]);
-            });
+                    $broadcast->update([
+                        'status' => 'sent',
+                        'sent_at' => now(),
+                        'recipients_count' => $totalRecipients,
+                    ]);
+                });
+        } finally {
+            // Always tear down tenant context so a long-running queue worker
+            // doesn't leak the broadcast's tenant into the next job it picks
+            // up. Pairs with the bindForJob call above; safe to invoke even
+            // when bindForJob was skipped (single-tenant installs).
+            $tenantResolver->unbindForJob();
+        }
     }
 
     /**
