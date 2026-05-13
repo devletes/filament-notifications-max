@@ -10,9 +10,11 @@ use Devletes\NotificationsMax\Models\BroadcastNotification;
 use Devletes\NotificationsMax\Services\NotificationDispatcher;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Pure fan-out: takes a released {@see BroadcastNotification} and spreads it
@@ -30,10 +32,23 @@ use Illuminate\Queue\SerializesModels;
  *      cancellation) between queueing and execution.
  *   2. Restore tenant context for the worker — Filament's tenant facade
  *      isn't bound from HTTP in queue worker processes.
- *   3. Chunk the audience query (100 users at a time) and dispatch a
- *      `broadcast.admin_custom` notification per chunk via the
- *      NotificationDispatcher.
- *   4. Stamp `sent_at`, `status='sent'`, and `recipients_count` on the row.
+ *   3. Resume from `last_processed_id` (the highest user id this broadcast
+ *      has already fanned out to). On the first attempt this is null and
+ *      the resume `where` is a no-op; on a retried attempt it skips chunks
+ *      that already delivered so recipients don't get duplicates.
+ *   4. Chunk the audience query (configurable via `broadcaster.chunk_size`,
+ *      default 100) and dispatch a `broadcast.admin_custom` notification
+ *      per chunk via the NotificationDispatcher. After each chunk, atomic
+ *      UPDATE bumps `last_processed_id` and increments `recipients_count`
+ *      — no outer transaction, so chunk progress is durable mid-run.
+ *   5. When chunkById exhausts, stamp `sent_at` and `status='sent'` on
+ *      the row.
+ *
+ * Failure mode: if a chunk's dispatch succeeds but the cursor update
+ * fails (DB connection dropped between the two), a retry replays that
+ * chunk's recipients. The reverse ordering would under-deliver instead,
+ * which is the worse failure mode — duplicate notifications are visible
+ * and recoverable; silently-dropped ones are not.
  */
 class SendBroadcastJob implements ShouldQueue
 {
@@ -71,40 +86,60 @@ class SendBroadcastJob implements ShouldQueue
         try {
             $context = $this->buildContext($broadcast);
 
-            $totalRecipients = 0;
-
             // Chunk size is configurable so installs with very large audiences
             // can tune memory + query frequency. Falls back to 100 (the historical
             // default) when the config key is missing or non-numeric.
             $chunkSize = max(1, (int) config('notifications-max.broadcaster.chunk_size', 100));
 
-            $broadcast
-                ->newQuery()
-                ->getConnection()
-                ->transaction(function () use ($broadcast, $audience, $dispatcher, $context, $chunkSize, &$totalRecipients): void {
-                    // Load the full user model — `routeNotificationForMail()` (and
-                    // any host-added per-channel routing methods) reads attributes
-                    // off the model, so restricting columns would break the mail
-                    // channel and any custom channel that depends on additional
-                    // user attributes.
-                    $audience
-                        ->matchingUsersQuery($broadcast->audience ?? [], $broadcast->tenant_id)
-                        ->chunkById($chunkSize, function ($chunk) use ($dispatcher, $context, &$totalRecipients): void {
-                            if ($chunk->isEmpty()) {
-                                return;
-                            }
+            // Resume from the highest already-fanned-out user id. On the first
+            // attempt last_processed_id is null and the where() is omitted; on
+            // a retried attempt it skips chunks that already delivered so
+            // recipients don't get duplicates.
+            $query = $audience->matchingUsersQuery($broadcast->audience ?? [], $broadcast->tenant_id);
 
-                            $dispatcher->send('broadcast.admin_custom', $context, $chunk);
+            if ($broadcast->last_processed_id !== null) {
+                $query->where($query->getModel()->getQualifiedKeyName(), '>', $broadcast->last_processed_id);
+            }
 
-                            $totalRecipients += $chunk->count();
-                        });
+            // Load the full user model — `routeNotificationForMail()` (and any
+            // host-added per-channel routing methods) reads attributes off the
+            // model, so restricting columns would break the mail channel and
+            // any custom channel that depends on additional user attributes.
+            //
+            // No outer transaction here. Holding row-level locks for the entire
+            // chunk loop turns large-audience broadcasts into long-running
+            // transactions that contend with everything else writing to the
+            // notifications and broadcast_notifications tables. Per-chunk
+            // updates are atomic on their own.
+            $query->chunkById($chunkSize, function (\Illuminate\Database\Eloquent\Collection $chunk) use ($broadcast, $dispatcher, $context): void {
+                if ($chunk->isEmpty()) {
+                    return;
+                }
 
-                    $broadcast->update([
-                        'status' => 'sent',
-                        'sent_at' => now(),
-                        'recipients_count' => $totalRecipients,
+                // Dispatch FIRST, then advance the cursor. The reverse order
+                // (cursor first, dispatch second) under-delivers if dispatch
+                // fails after the cursor commits. The chosen order over-
+                // delivers in the same edge case (cursor update fails after
+                // dispatch succeeded) — a retried chunk re-sends to recipients
+                // who already got notified. Duplicate notifications are
+                // visible and self-correcting; silently-dropped ones are not.
+                $dispatcher->send('broadcast.admin_custom', $context, $chunk);
+
+                $broadcast->newQuery()
+                    ->whereKey($broadcast->getKey())
+                    ->update([
+                        'last_processed_id' => $chunk->last()->getKey(),
+                        'recipients_count' => DB::raw('COALESCE(recipients_count, 0) + '.(int) $chunk->count()),
                     ]);
-                });
+            });
+
+            // Final stamp outside the chunk loop. A retried run that resumes
+            // mid-fan-out won't accidentally mark "sent" early — the status
+            // flips only when chunkById exhausts.
+            $broadcast->update([
+                'status' => 'sent',
+                'sent_at' => now(),
+            ]);
         } finally {
             // Always tear down tenant context so a long-running queue worker
             // doesn't leak the broadcast's tenant into the next job it picks

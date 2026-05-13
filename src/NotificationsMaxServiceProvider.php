@@ -41,6 +41,7 @@ class NotificationsMaxServiceProvider extends PackageServiceProvider
                 'create_user_notification_preferences_table',
                 'create_broadcast_notifications_table',
                 'create_notification_type_overrides_table',
+                'add_last_processed_id_to_broadcast_notifications_table',
             ])
             ->hasCommand(\Devletes\NotificationsMax\Console\SeedContentCommand::class);
     }

@@ -59,6 +59,12 @@ return new class extends Migration
             $table->timestamp('sent_at')->nullable();
             $table->unsignedInteger('recipients_count')->nullable();
 
+            // Resume cursor for SendBroadcastJob. Tracks the highest user
+            // id we've fanned out to within this broadcast's run; on a
+            // retried job we skip chunks whose users are at-or-below this
+            // mark so recipients don't get duplicate notifications.
+            $table->unsignedBigInteger('last_processed_id')->nullable();
+
             $table->timestamps();
 
             $table->index(['tenant_id', 'status'], 'bnf_tenant_status_idx');

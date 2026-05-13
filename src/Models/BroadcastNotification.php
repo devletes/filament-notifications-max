@@ -33,6 +33,7 @@ class BroadcastNotification extends Model
         'scheduled_at',
         'sent_at',
         'recipients_count',
+        'last_processed_id',
     ];
 
     protected $casts = [
@@ -41,6 +42,7 @@ class BroadcastNotification extends Model
         'scheduled_at' => 'datetime',
         'sent_at' => 'datetime',
         'recipients_count' => 'integer',
+        'last_processed_id' => 'integer',
     ];
 
     public function creator(): BelongsTo
