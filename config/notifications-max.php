@@ -323,9 +323,23 @@ return [
     | Settings for the admin-composed broadcast feature. Only active on panels
     | that register it via `NotificationsMaxPlugin::make()->broadcaster()`.
     |
+    | permissions
+    |   Per-action permission map. Each key corresponds to a policy method
+    |   on BroadcastNotificationPolicy. The shipped defaults follow Filament
+    |   Shield's auto-generated naming convention, so running
+    |   `php artisan shield:generate` produces matching rows and the
+    |   configured super_admin role syncs them automatically — no policy
+    |   override required for Shield installs.
+    |
+    |   Hosts that don't use Shield can either rewrite this map to their
+    |   own per-action permission names, or set it to `null` and use the
+    |   legacy single-permission fallback below.
+    |
     | permission
-    |   Spatie permission name required to view / compose / send broadcasts.
-    |   Users without it see neither the nav entry nor the routes.
+    |   Legacy single-permission fallback. Used only when `permissions`
+    |   above is null / empty. Provided for installs that gate every
+    |   broadcast action behind one permission rather than Shield's
+    |   per-action convention.
     |
     | audience_resolver
     |   Fully-qualified class name of the bound BroadcastAudienceResolver.
@@ -402,7 +416,15 @@ return [
     */
 
     'broadcaster' => [
-        'permission' => 'broadcast-notifications',
+        'permissions' => [
+            'view_any' => 'ViewAny:BroadcastNotification',
+            'view' => 'View:BroadcastNotification',
+            'create' => 'Create:BroadcastNotification',
+            'update' => 'Update:BroadcastNotification',
+            'delete' => 'Delete:BroadcastNotification',
+        ],
+
+        'permission' => null,
 
         'model' => \Devletes\NotificationsMax\Models\BroadcastNotification::class,
 
