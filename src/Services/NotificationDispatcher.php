@@ -7,6 +7,7 @@ namespace Devletes\NotificationsMax\Services;
 use Devletes\NotificationsMax\Contracts\TenantResolver;
 use Devletes\NotificationsMax\Notifications\GenericNotification;
 use Devletes\NotificationsMax\Registry\NotificationTypeRegistry;
+use Illuminate\Broadcasting\BroadcastException;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
@@ -60,18 +61,25 @@ class NotificationDispatcher
 
         // Laravel's notification sender iterates channels in via() order
         // (database first, broadcast second, mail last, per our config/channels
-        // map). Any channel's failure aborts the loop — so a Reverb outage
-        // would break a submit-for-approval flow even though the database
-        // channel already persisted the bell row. Wrap the send so real-time
-        // transport failures degrade to "missed toast, logged warning"
-        // instead of bubbling up as a 500 for the host.
+        // map). The broadcast channel is the one we expect to flake — a Reverb
+        // outage, a transient socket failure — so wrap the send with a
+        // BroadcastException-specific catch: the database row already
+        // persisted, the user will see the notification on the next bell poll
+        // (30s polling fallback), and we log a warning rather than 500ing the
+        // triggering request.
+        //
+        // Any OTHER exception — a bug in a host's notification subclass, a
+        // mail driver misconfiguration, a database write failure — propagates
+        // to the caller. Hiding those behind a catch-all Throwable masks real
+        // bugs as "partial delivery" warnings and makes the system harder to
+        // debug; if the dispatcher genuinely needs to swallow more, the host
+        // should wrap the call site instead.
         try {
             Notification::send($users, $this->makeNotification($type->key, $context, $type->notificationClass));
-        } catch (\Throwable $e) {
-            Log::warning('notifications-max: partial notification delivery', [
+        } catch (BroadcastException $e) {
+            Log::warning('notifications-max: broadcast channel failed', [
                 'type_key' => $type->key,
                 'recipients' => $users->pluck('id')->all(),
-                'exception' => $e::class,
                 'message' => $e->getMessage(),
             ]);
         }
