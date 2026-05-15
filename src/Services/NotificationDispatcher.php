@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace Devletes\NotificationsMax\Services;
 
+use Carbon\Carbon;
+use DateTimeInterface;
 use Devletes\NotificationsMax\Contracts\TenantResolver;
+use Devletes\NotificationsMax\Jobs\SendDeferredNotificationJob;
 use Devletes\NotificationsMax\Notifications\GenericNotification;
 use Devletes\NotificationsMax\Registry\NotificationType;
 use Devletes\NotificationsMax\Registry\NotificationTypeRegistry;
@@ -26,13 +29,20 @@ use Illuminate\Support\Facades\RateLimiter;
  *       recipients: $users,
  *   );
  *
+ * Schedule a future-dated send by passing `$delayUntil`:
+ *
+ *   $dispatcher->send('reminder.daily', $context, $user, now()->addHour());
+ *   // or equivalently:
+ *   $dispatcher->schedule(now()->addHour(), 'reminder.daily', $context, $user);
+ *
  * Handles:
  *   - Recipient normalization (accept User, Collection, array<int>)
  *   - Automatic tenant_slug injection from the tenant resolver
  *   - Cross-tenant defensive assertion (recipients must share tenant_id)
- *   - Delegating to Laravel's Notification facade (which queues, fires
- *     broadcast events, persists to db — per channels chosen by the
- *     GenericNotification::via())
+ *   - Per-(user, type) rate limiting (skipped for mandatory types)
+ *   - Optional deferred dispatch via {@see SendDeferredNotificationJob}
+ *   - Delegating to Laravel's Notification facade (which fires broadcast
+ *     events, persists to db — per channels chosen by GenericNotification::via())
  */
 class NotificationDispatcher
 {
@@ -44,9 +54,14 @@ class NotificationDispatcher
     /**
      * @param  iterable<int, mixed>|Authenticatable|Model  $recipients
      * @param  array<string, mixed>                        $context
+     * @param  ?DateTimeInterface                          $delayUntil  Future timestamp at which to deliver. Past / null = immediate.
      */
-    public function send(string $typeKey, array $context, mixed $recipients): void
-    {
+    public function send(
+        string $typeKey,
+        array $context,
+        mixed $recipients,
+        ?DateTimeInterface $delayUntil = null,
+    ): void {
         // Verify the type exists up front — fail loudly if domain code
         // misspells a key instead of silently never delivering.
         $type = $this->registry->find($typeKey);
@@ -60,6 +75,18 @@ class NotificationDispatcher
         $context = $this->enrichContext($context, $users);
 
         $this->assertSingleTenant($users, $context);
+
+        // Deferred path: queue a job that re-enters this dispatcher at the
+        // scheduled moment. Type / recipient / tenant validation has already
+        // run, so the schedule fails fast on bad input. Rate limiting is
+        // deliberately NOT applied here — it runs when the job fires, so
+        // the bucket reflects actual delivery moments rather than scheduling
+        // moments. Past timestamps fall through to the immediate path below.
+        if ($delayUntil !== null && Carbon::instance($delayUntil)->isFuture()) {
+            $this->dispatchDeferred($type->key, $context, $users, $delayUntil);
+
+            return;
+        }
 
         // Rate limiting filters recipients individually so a partially-
         // throttled audience still receives the notification for the
@@ -96,6 +123,63 @@ class NotificationDispatcher
                 'message' => $e->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * Schedule a notification to fire at `$delayUntil`. Sugar over
+     * {@see send()} with the delay argument named — reads more naturally
+     * at call sites where the "when" is the most important part:
+     *
+     *   $dispatcher->schedule(now()->addHour(), 'reminder', $ctx, $user);
+     *
+     * Past timestamps are treated as immediate by the underlying send().
+     *
+     * @param  array<string, mixed>                        $context
+     * @param  iterable<int, mixed>|Authenticatable|Model  $recipients
+     */
+    public function schedule(
+        DateTimeInterface $delayUntil,
+        string $typeKey,
+        array $context,
+        mixed $recipients,
+    ): void {
+        $this->send($typeKey, $context, $recipients, $delayUntil);
+    }
+
+    /**
+     * Queue a {@see SendDeferredNotificationJob} that re-enters this
+     * dispatcher with the same type / context / recipients at the
+     * scheduled moment. Extracts user ids (the job persists ids, not
+     * model instances) and the tenant id (for the queue middleware to
+     * restore tenant context inside the worker).
+     */
+    protected function dispatchDeferred(
+        string $typeKey,
+        array $context,
+        Collection $users,
+        DateTimeInterface $delayUntil,
+    ): void {
+        $userIds = $users
+            ->map(fn ($user): int|string|null => $this->userIdFor($user))
+            ->reject(fn ($id): bool => $id === null)
+            ->map(fn ($id): int => (int) $id)
+            ->values()
+            ->all();
+
+        if ($userIds === []) {
+            return;
+        }
+
+        // assertSingleTenant ran upstream, so picking any user's tenant
+        // is sufficient — they all share one (or all share null).
+        $tenantId = $users->first()->tenant_id ?? null;
+
+        SendDeferredNotificationJob::dispatch(
+            typeKey: $typeKey,
+            context: $context,
+            userIds: $userIds,
+            tenantId: is_numeric($tenantId) ? (int) $tenantId : null,
+        )->delay($delayUntil);
     }
 
     /**
