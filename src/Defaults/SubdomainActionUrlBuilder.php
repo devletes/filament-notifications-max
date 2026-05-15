@@ -38,8 +38,12 @@ class SubdomainActionUrlBuilder implements ActionUrlBuilder
         $scheme = parse_url($appUrl, PHP_URL_SCHEME) ?: 'https';
         $domain = config('app.domain') ?: parse_url($appUrl, PHP_URL_HOST) ?: 'localhost';
 
+        // Fall back to the panel id as the path segment when no panel is
+        // registered with that id (typical in tests, and harmless in
+        // production where the id is conventionally the same as the path).
+        // Matches {@see PathActionUrlBuilder}.
         $panel = Filament::getPanel($panelId, isStrict: false);
-        $panelPath = trim($panel?->getPath() ?? '', '/');
+        $panelPath = trim($panel?->getPath() ?? $panelId, '/');
 
         $path = ltrim(
             implode('/', array_filter([$panelPath, $resourceSlug, (string) $recordId])),
