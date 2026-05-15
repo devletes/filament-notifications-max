@@ -478,9 +478,11 @@ return [
     | overrides (e.g. for tests).
     |
     |   tenant
-    |     TenantResolver. NullTenantResolver is correct for single-tenant
-    |     apps; multi-tenant Filament apps bind their own (typically one
-    |     that wraps Filament::getTenant()).
+    |     TenantResolver. The shipped default (FilamentTenantResolver)
+    |     reads directly from Filament's manager facade and works for
+    |     both single-tenant and Filament-tenancy installs without any
+    |     host code. Override only when the host uses non-Filament
+    |     tenancy (custom tenancy package, multi-database, etc.).
     |
     |   action_url
     |     ActionUrlBuilder. PathActionUrlBuilder is the neutral default and
@@ -496,9 +498,34 @@ return [
     */
 
     'resolvers' => [
-        'tenant' => \Devletes\NotificationsMax\Defaults\NullTenantResolver::class,
+        'tenant' => \Devletes\NotificationsMax\Defaults\FilamentTenantResolver::class,
         'action_url' => \Devletes\NotificationsMax\Defaults\PathActionUrlBuilder::class,
         'preference' => \Devletes\NotificationsMax\Defaults\EloquentPreferenceResolver::class,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Tenant Context for Queue Workers
+    |--------------------------------------------------------------------------
+    |
+    | The package's queue middleware
+    | (Devletes\NotificationsMax\Queue\RestoreTenantContext) restores
+    | Filament's tenant + Spatie's permission team automatically inside
+    | SendBroadcastJob, so the host doesn't need to write any glue code
+    | for queue-worker tenant context.
+    |
+    | panel
+    |   Filament panel id whose tenant model the middleware should use
+    |   when hydrating a tenant from the job's tenant_id. Leave null to
+    |   auto-detect the first panel found in Filament::getPanels() with
+    |   a tenant model declared — the right answer for the typical
+    |   single-tenanted-panel install. Set this when more than one panel
+    |   has tenancy and the auto-detected choice isn't the one you want.
+    |
+    */
+
+    'tenant' => [
+        'panel' => null,
     ],
 
     /*
