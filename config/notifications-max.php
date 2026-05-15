@@ -107,7 +107,96 @@ return [
                 'template' => 'template-select',
             ],
         ],
+
+        // Pre-built channels — uncomment to activate. Each requires the
+        // corresponding third-party Laravel notification channel package
+        // (see `channel_handlers` block below for which composer dep
+        // each one needs).
+
+        // 'sms' => [
+        //     'label' => 'SMS',
+        //     'physical' => ['twilio'],  // or ['vonage'] — pick one
+        //     'content_fields' => ['body' => 'text'],
+        // ],
+
+        // 'slack' => [
+        //     'label' => 'Slack',
+        //     'physical' => ['slack'],
+        //     'content_fields' => ['body' => 'text'],
+        // ],
+
+        // 'discord' => [
+        //     'label' => 'Discord',
+        //     'physical' => ['discord'],
+        //     'content_fields' => ['body' => 'text'],
+        // ],
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Channel Handlers
+    |--------------------------------------------------------------------------
+    |
+    | Maps a physical channel name (the thing Laravel's ChannelManager
+    | resolves and the user's `via()` returns) to a class implementing
+    | {@see \Devletes\NotificationsMax\Contracts\ChannelHandler}. The
+    | handler renders the per-channel payload — array for database,
+    | MailMessage for mail, TwilioSmsMessage for twilio, etc.
+    |
+    | The package ships handlers for every channel listed below. Built-
+    | in channels (database / broadcast / mail) work out of the box.
+    | Optional channels (twilio / vonage / slack / discord) require the
+    | host to install the matching third-party Laravel notification
+    | channel package — without it the handler's import resolves to a
+    | missing class at runtime. Install only the ones you'll use:
+    |
+    |   composer require laravel-notification-channels/twilio    # for twilio
+    |   composer require laravel/vonage-notification-channel     # for vonage
+    |   composer require laravel/slack-notification-channel      # for slack
+    |   composer require laravel-notification-channels/discord   # for discord
+    |
+    | Hosts customise a channel's rendering by pointing the map at a
+    | subclass — e.g. extend `DatabaseChannelHandler` to add extra audit
+    | fields, then set `'database' => YourDatabaseChannelHandler::class`.
+    |
+    | Hosts adding a wholly new channel (one this package doesn't ship a
+    | handler for) subclass `GenericNotification`, add a `to{Channel}`
+    | method, and set `default_notification_class` below to their subclass.
+    |
+    */
+
+    'channel_handlers' => [
+        'database'  => \Devletes\NotificationsMax\Channels\DatabaseChannelHandler::class,
+        'broadcast' => \Devletes\NotificationsMax\Channels\BroadcastChannelHandler::class,
+        'mail'      => \Devletes\NotificationsMax\Channels\MailChannelHandler::class,
+        'twilio'    => \Devletes\NotificationsMax\Channels\TwilioChannelHandler::class,
+        'vonage'    => \Devletes\NotificationsMax\Channels\VonageChannelHandler::class,
+        'slack'     => \Devletes\NotificationsMax\Channels\SlackChannelHandler::class,
+        'discord'   => \Devletes\NotificationsMax\Channels\DiscordChannelHandler::class,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Default Notification Class
+    |--------------------------------------------------------------------------
+    |
+    | The notification class the dispatcher instantiates when a type entry
+    | doesn't declare its own `notification_class`. Defaults to the
+    | package's `GenericNotification`, which carries `to{Channel}` methods
+    | for every channel listed under `channel_handlers` above.
+    |
+    | Hosts adding a custom channel (one this package doesn't ship a
+    | handler for) subclass `GenericNotification`, add a `to{Channel}`
+    | method, and point this key at their subclass:
+    |
+    |   'default_notification_class' => \App\Notifications\MyAppNotification::class,
+    |
+    | Per-type overrides (`notification_class` on a type registry entry)
+    | still win when present.
+    |
+    */
+
+    'default_notification_class' => \Devletes\NotificationsMax\Notifications\GenericNotification::class,
 
     /*
     |--------------------------------------------------------------------------

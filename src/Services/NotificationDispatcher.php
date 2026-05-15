@@ -99,20 +99,29 @@ class NotificationDispatcher
     }
 
     /**
-     * Construct the Laravel Notification instance to dispatch. Defaults to
-     * the package's own `GenericNotification`; per-type registry entries may
-     * declare `notification_class => MyCustomNotification::class` to swap in
-     * a host-app subclass with custom mail templates, queue policy, etc.
+     * Construct the Laravel Notification instance to dispatch. Resolution
+     * order:
      *
-     * Custom classes are constructed with the same `(typeKey, context)`
-     * signature, so they typically extend `GenericNotification` and override
-     * only the methods they want to specialise.
+     *   1. Per-type override — a type registry entry's `notification_class`
+     *      field. Wins over everything else, so a single type can use a
+     *      specialised subclass without affecting others.
+     *   2. Host-wide default — the `notifications-max.default_notification_class`
+     *      config. The escape hatch for adding a `to{Channel}` method
+     *      that the package doesn't ship a handler for: subclass
+     *      GenericNotification, add your method, set this config.
+     *   3. Package default — `GenericNotification` itself.
+     *
+     * Whichever class is chosen is constructed with the same
+     * `(typeKey, context)` signature, so subclasses just extend
+     * `GenericNotification` and override what they need.
      *
      * @param  array<string, mixed>  $context
      */
     protected function makeNotification(string $typeKey, array $context, ?string $notificationClass): \Illuminate\Notifications\Notification
     {
-        $class = $notificationClass ?? GenericNotification::class;
+        $class = $notificationClass
+            ?? config('notifications-max.default_notification_class')
+            ?? GenericNotification::class;
 
         // `is_a($class, $base, allow_string: true)` matches both the class
         // itself and any subclass — covers GenericNotification and host

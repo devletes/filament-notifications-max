@@ -29,6 +29,12 @@
         "pestphp/pest": "^3.8",
         "pestphp/pest-plugin-laravel": "^3.0"
     },
+    "suggest": {
+        "laravel-notification-channels/twilio": "Required to deliver SMS via Twilio (enable channel_handlers.twilio).",
+        "laravel/vonage-notification-channel": "Required to deliver SMS via Vonage (enable channel_handlers.vonage).",
+        "laravel/slack-notification-channel": "Required to deliver Slack messages (enable channel_handlers.slack).",
+        "laravel-notification-channels/discord": "Required to deliver Discord messages (enable channel_handlers.discord)."
+    },
     "autoload": {
         "psr-4": {
             "Devletes\\NotificationsMax\\": "src/"
