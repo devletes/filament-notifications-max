@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Devletes\NotificationsMax;
 
+use BackedEnum;
 use Composer\InstalledVersions;
 use Devletes\NotificationsMax\Filament\Pages\NotificationCenter;
 use Devletes\NotificationsMax\Filament\Pages\NotificationPreferences;
@@ -11,6 +12,7 @@ use Devletes\NotificationsMax\Filament\Pages\NotificationSettings;
 use Devletes\NotificationsMax\Filament\Resources\BroadcastNotifications\BroadcastNotificationResource;
 use Filament\Contracts\Plugin;
 use Filament\Panel;
+use Filament\Support\Icons\Heroicon;
 use UnitEnum;
 
 class NotificationsMaxPlugin implements Plugin
@@ -20,6 +22,15 @@ class NotificationsMaxPlugin implements Plugin
     protected bool $notificationCenterPage = false;
 
     protected bool $notificationSettingsPage = false;
+
+    /**
+     * Navigation icon for the notification settings page. Defaults to the
+     * outlined-bell heroicon so the page is visually identifiable when
+     * enabled. Set to `null` via {@see notificationSettingsIcon()} to
+     * suppress the icon entirely, or pass a string / BackedEnum to use a
+     * custom icon (e.g. `'heroicon-o-cog'` or `Heroicon::OutlinedCog`).
+     */
+    protected string|BackedEnum|null $notificationSettingsIcon = Heroicon::OutlinedBell;
 
     protected bool $broadcaster = false;
 
@@ -135,6 +146,25 @@ class NotificationsMaxPlugin implements Plugin
         return $this;
     }
 
+    /**
+     * Override the navigation icon shown for the notification settings
+     * page. Three usage shapes:
+     *
+     *   ->notificationSettingsIcon('heroicon-o-cog')         // string asset
+     *   ->notificationSettingsIcon(Heroicon::OutlinedCog)    // BackedEnum
+     *   ->notificationSettingsIcon(null)                     // no icon
+     *
+     * Without calling this method, the page renders with
+     * {@see Heroicon::OutlinedBell} so the link is visually identifiable
+     * in panels that don't otherwise standardise icon usage.
+     */
+    public function notificationSettingsIcon(string|BackedEnum|null $icon): static
+    {
+        $this->notificationSettingsIcon = $icon;
+
+        return $this;
+    }
+
     public function broadcaster(bool $condition = true): static
     {
         $this->broadcaster = $condition;
@@ -180,6 +210,11 @@ class NotificationsMaxPlugin implements Plugin
     public function hasNotificationSettingsPage(): bool
     {
         return $this->notificationSettingsPage;
+    }
+
+    public function getNotificationSettingsIcon(): string|BackedEnum|null
+    {
+        return $this->notificationSettingsIcon;
     }
 
     public function hasBroadcaster(): bool

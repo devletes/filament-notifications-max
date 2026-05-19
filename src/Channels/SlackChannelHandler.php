@@ -26,12 +26,28 @@ use Illuminate\Notifications\Slack\SlackMessage;
  * via webhook urls if you want true per-user delivery, or treat the slack
  * channel as a team broadcast feed rather than a personal one.
  *
+ * ## Markdown dialect
+ *
+ * Slack renders messages with its own `mrkdwn` flavour — not standard
+ * markdown:
+ *
+ *   *bold*           _italic_           ~strike~
+ *   `inline code`    ```multiline```    <url|label>
+ *
+ * Templates configured for the slack channel are authored as mrkdwn
+ * (the package's content resolver returns them verbatim). Interpolated
+ * `{token}` values from the dispatch context are backslash-escaped by
+ * {@see GenericNotification::render()} so a user-supplied value
+ * containing `*foo*` doesn't accidentally trigger bold formatting after
+ * substitution. Templates remain trusted.
+ *
  * Channel content shape (read from `notifications-max.channels.slack`):
  *
  *   'slack' => [
  *       'label' => 'Slack',
  *       'physical' => ['slack'],
- *       'content_fields' => ['body' => 'text'],
+ *       'richness' => 'markdown',
+ *       'content_fields' => ['body' => 'markdown'],
  *   ],
  */
 class SlackChannelHandler implements ChannelHandler
@@ -50,8 +66,12 @@ class SlackChannelHandler implements ChannelHandler
             $notification->resolveTenantId(),
         );
 
+        // Slack's mrkdwn dialect — render with markdown richness so
+        // interpolated values get backslash-escaped against the flavour's
+        // formatting chars (`*_~` + backtick + `&<>` HTML entities).
         $body = $notification->render(
             (string) ($content['body'] ?? $type->body),
+            $this->contentResolver->richnessFor('slack'),
         );
 
         return (new SlackMessage)->text($body);

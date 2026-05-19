@@ -200,9 +200,18 @@ class GenericNotification extends Notification
         $push = app(\Devletes\NotificationsMax\Services\NotificationContentResolver::class)
             ->contentFor($type->key, 'push', $this->resolveTenantId());
 
+        // Push is plain-text authored (richness=plain on the channel) but
+        // Filament's bell + toast render `title`/`body` as HTML — they run
+        // them through `sanitizeHtml()` downstream. Passing raw plain text
+        // means values like `<root>` or `<3` get parsed as broken tags and
+        // silently stripped. `e()` here is the bridge: it encodes the
+        // plain-text string into safe HTML so the bell shows it literally,
+        // including any `&`, `<`, `>` the admin or context value contains.
+        // Same reasoning for title and body — both flow into Filament's
+        // HTML render surface, both need the same one-line bridge.
         $filament = FilamentNotification::make()
-            ->title($this->render((string) ($push['title'] ?? $type->title)))
-            ->body($this->render((string) ($push['body'] ?? $type->body)))
+            ->title(e($this->render((string) ($push['title'] ?? $type->title))))
+            ->body(e($this->render((string) ($push['body'] ?? $type->body))))
             ->icon($type->icon);
 
         if ($type->color) {
@@ -284,29 +293,75 @@ class GenericNotification extends Notification
     }
 
     /**
-     * Naive template renderer: replaces `{placeholder}` tokens in a
-     * string with values from {@see $context}. Missing placeholders are
-     * left intact so debugging is easier.
+     * Template renderer: replaces `{placeholder}` tokens in a string with
+     * values from {@see $context}. Missing placeholders are left intact so
+     * debugging is easier.
+     *
+     * The `$richness` arg controls how interpolated context values are
+     * escaped — NOT the template itself. Templates come from config or
+     * admin input and are trusted (an admin writing `<strong>` in a
+     * rich-text email body wants bold output). Context values come from
+     * the host's dispatch call and can carry untrusted data (a user-
+     * supplied display name, a record summary, etc.), so substituting
+     * them raw into an HTML or markdown body would let a malicious value
+     * inject formatting or markup. Escaping per channel dialect closes
+     * that surface without forcing every handler to think about it.
+     *
+     * Defaults to `'plain'` so callers that haven't migrated continue to
+     * get the historical behaviour. Unknown richness values fall back to
+     * `'plain'` for the same reason.
      */
-    public function render(string $template): string
+    public function render(string $template, string $richness = 'plain'): string
     {
         if ($template === '') {
             return '';
         }
 
         return Str::of($template)
-            ->replaceMatches('/\{([a-zA-Z0-9_\.]+)\}/', function (array $m): string {
+            ->replaceMatches('/\{([a-zA-Z0-9_\.]+)\}/', function (array $m) use ($richness): string {
                 $key = $m[1];
                 $value = data_get($this->context, $key);
 
                 if (is_scalar($value)) {
-                    return (string) $value;
+                    return $this->escapeForRichness((string) $value, $richness);
                 }
 
                 // Preserve the placeholder for missing keys.
                 return '{'.$key.'}';
             })
             ->toString();
+    }
+
+    /**
+     * Escape an interpolated context value for the destination channel's
+     * richness. Centralised so {@see render()} stays a one-liner and new
+     * dialects (e.g. a future channel needing different escaping) slot
+     * in here without touching call sites.
+     */
+    protected function escapeForRichness(string $value, string $richness): string
+    {
+        return match ($richness) {
+            'html' => e($value),
+            'markdown' => $this->escapeSlackMarkdown($value),
+            default => $value,
+        };
+    }
+
+    /**
+     * Escape a value so Slack's mrkdwn parser treats it as literal text.
+     *
+     * Slack's docs mandate HTML-entity escaping for `&`, `<`, `>` in any
+     * user-supplied text (otherwise `<url>` is interpreted as a link).
+     * The formatting characters `*`, `_`, `~`, `` ` ``, `\` are backslash-
+     * escaped so a value like `*hello*` doesn't accidentally trigger bold
+     * formatting after substitution. Backslash is escaped first so the
+     * escape character itself doesn't double-process subsequent chars.
+     */
+    protected function escapeSlackMarkdown(string $value): string
+    {
+        $value = strtr($value, ['&' => '&amp;', '<' => '&lt;', '>' => '&gt;']);
+
+        return preg_replace('/([\\\\*_~`])/', '\\\\$1', $value) ?? $value;
     }
 
     /**

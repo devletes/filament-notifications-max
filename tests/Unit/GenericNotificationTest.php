@@ -88,6 +88,48 @@ it('buildFilamentPayload omits broadcast_id when not supplied', function (): voi
     expect($payload)->not->toHaveKey('broadcast_id');
 });
 
+it('buildFilamentPayload HTML-escapes the push body before handing it to Filament', function (): void {
+    // Push is plain-text authored, but Filament's bell + toast render
+    // body as HTML downstream. Without escaping, a context value
+    // containing `<script>...` would be parsed as a tag and silently
+    // stripped by Filament's HtmlSanitizer. Escaping here makes the
+    // string render as literal text in the bell.
+    $payload = (new GenericNotification('demo.type', [
+        'name' => 'Alice',
+        'place' => '<script>alert(1)</script>',
+    ]))->buildFilamentPayload();
+
+    expect($payload['body'])
+        ->toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
+        ->not->toContain('<script>');
+});
+
+it('buildFilamentPayload leaves plain-text bodies byte-identical to pre-change behaviour', function (): void {
+    // Regression guard: a body whose template + context values contain
+    // no HTML special characters renders identically before and after
+    // the e()-on-bridge change so existing HRMS notification copy stays
+    // pixel-stable.
+    $payload = (new GenericNotification('demo.type', [
+        'name' => 'Alice',
+        'place' => 'HQ',
+    ]))->buildFilamentPayload();
+
+    expect($payload['body'])->toBe('Welcome to HQ');
+});
+
+it('buildFilamentPayload HTML-escapes the push title the same way the body is escaped', function (): void {
+    // Title and body both flow into Filament's HTML render surface and
+    // both get the same one-line e() bridge. So an admin or context
+    // value containing HTML lands as literal escaped text — no
+    // asymmetry between title and body.
+    $payload = (new GenericNotification('demo.type', [
+        'name' => '<b>Alice</b>',
+        'place' => 'HQ',
+    ]))->buildFilamentPayload();
+
+    expect($payload['title'])->toBe('Hello &lt;b&gt;Alice&lt;/b&gt;');
+});
+
 it('resolveBroadcastData attaches a UUID and a duration to the payload', function (): void {
     $data = (new GenericNotification('demo.type'))->resolveBroadcastData();
 

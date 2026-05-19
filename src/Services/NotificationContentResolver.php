@@ -115,7 +115,16 @@ class NotificationContentResolver
      * (tenant, type), already filtered by:
      *   - the type's mandatory flag (mandatory bypasses admin allowance)
      *   - the admin's `allowed_channels` override (DB mode only)
-     *   - the type's config-level `allowed_channels`
+     *   - the channel registry (stale-override protection)
+     *
+     * The type's `allowed_channels` config acts as the INITIAL allowance
+     * when no admin override exists — it's a default suggestion, not a
+     * hard ceiling. In DB mode, admins can opt in to any channel that's
+     * registered at the package level via the Notification Settings
+     * page; their stored override is the source of truth for the
+     * dispatcher. Mandatory types are the exception — they always fire
+     * on their config `allowed_channels` so compliance notifications
+     * can't be silenced by accident.
      *
      * Caller (PreferenceResolver) further intersects with the user's
      * own toggles before final dispatch.
@@ -142,10 +151,14 @@ class NotificationContentResolver
             return $type->allowedChannels;
         }
 
-        // Admin's allowance is the floor — but never expose channels the
-        // type doesn't actually support. Intersect with config to defend
-        // against a stale override referencing a removed channel.
-        return array_values(array_intersect($override->allowed_channels, $type->allowedChannels));
+        // Admin override is authoritative. Intersect with the channel
+        // registry (not the type's config-level allowed_channels) so a
+        // stale override referencing a channel that has been removed
+        // from the registry drops out gracefully — but channels the
+        // admin opted in BEYOND the type's defaults are honoured.
+        $registryChannels = array_keys($this->allChannels());
+
+        return array_values(array_intersect($override->allowed_channels, $registryChannels));
     }
 
     /**
@@ -170,6 +183,20 @@ class NotificationContentResolver
         $channels = config('notifications-max.channels', []);
 
         return is_array($channels) ? $channels : [];
+    }
+
+    /**
+     * Richness declared by the channel — the dialect handlers feed into
+     * {@see \Devletes\NotificationsMax\Notifications\GenericNotification::render()}
+     * for placeholder-value escaping. Defaults to `'plain'` so channels
+     * that haven't declared one (incl. host-added channels predating this
+     * key) fail safe instead of accidentally treating values as HTML.
+     */
+    public function richnessFor(string $channel): string
+    {
+        $richness = $this->channelDefinition($channel)['richness'] ?? null;
+
+        return is_string($richness) && $richness !== '' ? $richness : 'plain';
     }
 
     public function shouldUseDatabase(): bool

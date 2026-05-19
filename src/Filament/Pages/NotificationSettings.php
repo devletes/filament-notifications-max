@@ -7,6 +7,7 @@ namespace Devletes\NotificationsMax\Filament\Pages;
 use Devletes\NotificationsMax\Contracts\TenantResolver;
 use Devletes\NotificationsMax\Filament\Pages\Concerns\BuildsNotificationPrefsLayout;
 use Devletes\NotificationsMax\Models\NotificationTypeOverride;
+use Devletes\NotificationsMax\NotificationsMaxPlugin;
 use Devletes\NotificationsMax\Registry\NotificationType;
 use Devletes\NotificationsMax\Registry\NotificationTypeRegistry;
 use Devletes\NotificationsMax\Services\NotificationContentResolver;
@@ -24,7 +25,6 @@ use Filament\Schemas\Components\Component;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Illuminate\Support\HtmlString;
-use Filament\Support\Icons\Heroicon;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -61,8 +61,6 @@ class NotificationSettings extends Page implements HasForms
 
     protected static string|UnitEnum|null $navigationGroup = 'Settings';
 
-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBell;
-
     protected static ?string $navigationLabel = 'Notifications';
 
     protected static ?string $title = 'Notification settings';
@@ -73,6 +71,17 @@ class NotificationSettings extends Page implements HasForms
 
     /** @var array<string, mixed> */
     public ?array $data = [];
+
+    /**
+     * Navigation icon delegated to the plugin so hosts can override (or
+     * suppress) it via `NotificationsMaxPlugin::make()->notificationSettingsIcon(...)`.
+     * Defaults to the outlined-bell heroicon; pass `null` to render the
+     * sidebar link without any icon.
+     */
+    public static function getNavigationIcon(): string|BackedEnum|null
+    {
+        return NotificationsMaxPlugin::get()->getNotificationSettingsIcon();
+    }
 
     public static function canAccess(): bool
     {
@@ -108,18 +117,28 @@ class NotificationSettings extends Page implements HasForms
         $tenantId = app(TenantResolver::class)->currentId();
 
         $settings = [];
+        $registryChannels = array_keys(app(NotificationContentResolver::class)->allChannels());
 
         foreach ($registry->all() as $key => $type) {
             $safe = $this->safeKey($key);
             $allowed = $this->loadAllowedChannels($tenantId, $key, $type);
 
-            // Iterate the type's full ceiling so admins see every channel
-            // that COULD ever be allowed for this type, with toggles in
-            // the correct on/off state for whichever ones are currently
-            // allowed.
-            foreach ($type->allowedChannels as $channel) {
+            // Iterate every channel registered at the package level —
+            // not just the type's `allowed_channels` — so admins see
+            // their full opt-in surface. The initial on/off state then
+            // reflects the type's defaults (no override) or the admin's
+            // saved allowance (override exists). Channels outside the
+            // type's `allowed_channels` start OFF; toggling one ON saves
+            // it and the resolver honours it on subsequent dispatches.
+            //
+            // Mandatory types stay pinned to their config-level allowance
+            // — channels in `allowed_channels` are ON (and locked), the
+            // rest are OFF (and also locked). The dispatcher reads from
+            // `type->allowedChannels` directly for mandatory types so
+            // these toggles are display-only.
+            foreach ($registryChannels as $channel) {
                 $settings[$safe][$channel] = $type->mandatory
-                    ? true
+                    ? in_array($channel, $type->allowedChannels, true)
                     : in_array($channel, $allowed, true);
             }
         }
@@ -201,6 +220,7 @@ class NotificationSettings extends Page implements HasForms
 
         $registry = app(NotificationTypeRegistry::class);
         $tenantId = app(TenantResolver::class)->currentId();
+        $registryChannels = array_keys(app(NotificationContentResolver::class)->allChannels());
 
         $submitted = $this->form->getState()['settings'] ?? [];
 
@@ -216,10 +236,12 @@ class NotificationSettings extends Page implements HasForms
             $row = $submitted[$safe] ?? [];
 
             // Build the allowance list from toggles that are ON, intersected
-            // with the type's config-level ceiling so a stale form value
-            // can't expose an unsupported channel.
+            // with the channel registry so a stale form value can't expose
+            // an unregistered channel. Note: we no longer intersect with
+            // the type's config-level `allowed_channels` — admins can opt
+            // in to channels beyond the type's defaults via this page.
             $allowed = array_values(array_filter(
-                $type->allowedChannels,
+                $registryChannels,
                 fn (string $channel): bool => (bool) ($row[$channel] ?? false),
             ));
 
@@ -252,15 +274,17 @@ class NotificationSettings extends Page implements HasForms
     }
 
     /**
-     * Admin sees the type's full ceiling — every channel the type could
-     * ever fire on. Toggle state determines which subset is currently
-     * allowed.
+     * Admin sees every channel registered at the package level — not
+     * just the type's `allowed_channels` default. This lets admins opt
+     * in to channels beyond the type's config defaults via the toggle
+     * state. The resolver's stale-override intersection keeps things
+     * safe if a channel later disappears from the registry.
      *
      * @return array<int, string>
      */
     protected function channelsForType(NotificationType $type): array
     {
-        return $type->allowedChannels;
+        return array_keys(app(NotificationContentResolver::class)->allChannels());
     }
 
     protected function isToggleDisabled(NotificationType $type): bool
@@ -324,7 +348,10 @@ class NotificationSettings extends Page implements HasForms
             ->link()
             ->modalHeading(fn (): string => "Manage content — {$type->label}")
             ->modalDescription($this->placeholderHintFor($type))
-            ->modalWidth('4xl')
+            // 5xl gives the email rich-text editor enough horizontal room
+            // to feel native rather than cramped — channel sections also
+            // breathe better once they're stacked vertically.
+            ->modalWidth('5xl')
             ->fillForm(fn (): array => $this->loadContentForForm($type))
             ->schema($this->buildModalSchema($type, $channels))
             ->action(function (array $data) use ($type): void {
@@ -363,7 +390,14 @@ class NotificationSettings extends Page implements HasForms
                     fn (string $fieldType, string $fieldName) => $this->fieldComponent($channelKey, $fieldName, $fieldType),
                     $fields,
                     array_keys($fields),
-                )));
+                )))
+                // Collapsible per-channel so admins editing a long email
+                // body can collapse the noisy push / slack sections out
+                // of the way without losing them. Default state matches
+                // the surrounding settings page (all expanded) so the
+                // first-visit experience surfaces every editable field.
+                ->collapsible()
+                ->collapsed(false);
         }
 
         return $sections;
@@ -390,6 +424,19 @@ class NotificationSettings extends Page implements HasForms
 
             'rich-text' => RichEditor::make($statePath)
                 ->label($label)
+                ->columnSpanFull(),
+
+            // Markdown editor — Slack's mrkdwn dialect (and any future
+            // channel whose target renders some flavour of markdown).
+            // Filament's core has no markdown editor; a Textarea with a
+            // syntax cheatsheet is the lowest-friction option. The
+            // resolver tags the channel with `richness: markdown` so
+            // interpolated values get backslash-escaped against the
+            // formatting chars; templates here are trusted markdown.
+            'markdown' => Textarea::make($statePath)
+                ->label($label)
+                ->rows(6)
+                ->helperText('Slack mrkdwn: *bold*, _italic_, ~strike~, `code`, <url|label>')
                 ->columnSpanFull(),
 
             'template-select' => Select::make($statePath)

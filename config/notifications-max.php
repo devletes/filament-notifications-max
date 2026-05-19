@@ -71,14 +71,32 @@ return [
     |                     field's value is its editor type:
     |                       'string'           single-line text
     |                       'text'             multi-line text
-    |                       'rich-text'        WYSIWYG, HTML output
+    |                       'rich-text'        full WYSIWYG, HTML output
+    |                                          (email — headings, tables,
+    |                                          attachments)
     |                       'template-select'  dropdown of registered
     |                                          email templates (special-cased)
     |                     The Manage Content modal renders an editor per
     |                     field automatically — adding a new channel is a
     |                     config change, never a UI change.
     |
-    |   3. Preferences  — `label` is what users / admins see in the
+    |   3. Richness    — `richness` declares how the channel renders body-
+    |                    like content downstream. Values:
+    |                       'plain'     plain text, no interpretation
+    |                       'html'      HTML, sanitized by the renderer
+    |                                   (e.g. Filament bell/toast, mail)
+    |                       'markdown'  channel-native markdown dialect
+    |                                   (e.g. Slack mrkdwn)
+    |                    The placeholder substituter ({@see GenericNotification::render()})
+    |                    escapes interpolated context values per dialect so
+    |                    untrusted values can't break out of the surrounding
+    |                    template — templates themselves are trusted. Titles
+    |                    and subjects are always treated as plain regardless
+    |                    of channel richness. Defaults to 'plain' when
+    |                    omitted, so adding a new channel without thinking
+    |                    about richness fails safely.
+    |
+    |   4. Preferences  — `label` is what users / admins see in the
     |                     preferences toggles.
     |
     | Apps wanting their own channel (SMS, Slack, Teams, webhook, …) add
@@ -93,6 +111,13 @@ return [
         'push' => [
             'label' => 'Push',
             'physical' => ['database', 'broadcast'],
+            // Plain — admins author plain text, same as every other
+            // "push" surface in the world (mobile OS, desktop OS, Slack,
+            // browser push). Filament's bell + toast happen to render
+            // HTML, but the channel handler HTML-escapes on the way out
+            // so the surface stays consistent. Don't change this to
+            // 'html' to unlock rich content; the constraint is intentional.
+            'richness' => 'plain',
             'content_fields' => [
                 'title' => 'string',
                 'body' => 'text',
@@ -101,6 +126,7 @@ return [
         'email' => [
             'label' => 'Email',
             'physical' => ['mail'],
+            'richness' => 'html',
             'content_fields' => [
                 'subject' => 'string',
                 'body' => 'rich-text',
@@ -122,7 +148,13 @@ return [
         // 'slack' => [
         //     'label' => 'Slack',
         //     'physical' => ['slack'],
-        //     'content_fields' => ['body' => 'text'],
+        //     // Slack's native flavour is mrkdwn — *bold*, _italic_,
+        //     // ~strike~, `code`, <url|label>. Templates are trusted
+        //     // mrkdwn; interpolated context values are backslash-escaped
+        //     // by GenericNotification::render() so a user-supplied
+        //     // `*foo*` doesn't accidentally trigger bold formatting.
+        //     'richness' => 'markdown',
+        //     'content_fields' => ['body' => 'markdown'],
         // ],
 
         // 'discord' => [
