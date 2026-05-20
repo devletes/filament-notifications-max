@@ -53,3 +53,59 @@ it('chains fluently — notificationSettingsPage()->notificationSettingsIcon(...
         ->and($plugin->hasNotificationSettingsPage())->toBeTrue()
         ->and($plugin->getNotificationSettingsIcon())->toBeNull();
 });
+
+it('defaults preferences-page nav visibility to off and overrides to null', function (): void {
+    // Out-of-the-box behaviour: the preferences page registers but stays
+    // hidden from the sidebar — hosts reach it via the NotificationCenter
+    // header action. All four presentation accessors return null until
+    // the host overrides them, so the page falls back to its own
+    // static defaults.
+    $plugin = new NotificationsMaxPlugin;
+
+    expect($plugin->hasPreferencesPageInNavigation())->toBeFalse()
+        ->and($plugin->getPreferencesPageNavigationGroup())->toBeNull()
+        ->and($plugin->getPreferencesPageNavigationLabel())->toBeNull()
+        ->and($plugin->getPreferencesPageNavigationIcon())->toBeNull()
+        ->and($plugin->getPreferencesPageTitle())->toBeNull();
+});
+
+it('chains fluently — preferencesPage() + the five new presentation setters', function (): void {
+    // Every new setter must return $this so panel providers can compose
+    // them inline. The hostage-scenario fixture (group=Settings,
+    // label=Notifications, title=Preferences) is exactly the HRMS
+    // employee-panel shape and exercises the full surface in one go.
+    $plugin = (new NotificationsMaxPlugin)
+        ->preferencesPage()
+        ->preferencesPageInNavigation()
+        ->preferencesPageNavigationGroup('Settings')
+        ->preferencesPageNavigationLabel('Notifications')
+        ->preferencesPageNavigationIcon(Heroicon::OutlinedBell)
+        ->preferencesPageTitle('Preferences');
+
+    expect($plugin)->toBeInstanceOf(NotificationsMaxPlugin::class)
+        ->and($plugin->hasPreferencesPage())->toBeTrue()
+        ->and($plugin->hasPreferencesPageInNavigation())->toBeTrue()
+        ->and($plugin->getPreferencesPageNavigationGroup())->toBe('Settings')
+        ->and($plugin->getPreferencesPageNavigationLabel())->toBe('Notifications')
+        ->and($plugin->getPreferencesPageNavigationIcon())->toBe(Heroicon::OutlinedBell)
+        ->and($plugin->getPreferencesPageTitle())->toBe('Preferences');
+});
+
+it('accepts a string icon asset name for the preferences page nav icon', function (): void {
+    // Same string-or-enum acceptance as notificationSettingsIcon — hosts
+    // using string asset names get the same flexibility.
+    $plugin = (new NotificationsMaxPlugin)->preferencesPageNavigationIcon('heroicon-o-bell-alert');
+
+    expect($plugin->getPreferencesPageNavigationIcon())->toBe('heroicon-o-bell-alert');
+});
+
+it('preferencesPageInNavigation(false) explicitly disables sidebar registration', function (): void {
+    // The boolean parameter lets hosts conditionally enable based on
+    // some external state without breaking the fluent chain.
+    $plugin = (new NotificationsMaxPlugin)
+        ->preferencesPage()
+        ->preferencesPageInNavigation(false);
+
+    expect($plugin->hasPreferencesPage())->toBeTrue()
+        ->and($plugin->hasPreferencesPageInNavigation())->toBeFalse();
+});

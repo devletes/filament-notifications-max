@@ -19,6 +19,28 @@ class NotificationsMaxPlugin implements Plugin
 {
     protected bool $preferencesPage = false;
 
+    /**
+     * When true (set via {@see preferencesPageInNavigation()}), the user
+     * preferences page registers itself in the panel's sidebar in
+     * addition to remaining reachable via the NotificationCenter
+     * "Preferences" header action. Default false keeps backward
+     * compatibility with hosts who rely on the deep-link route only.
+     */
+    protected bool $preferencesPageInNavigation = false;
+
+    /**
+     * Per-panel overrides for the preferences page's presentation. `null`
+     * means "use the page's own static defaults" — so a host that doesn't
+     * call the override method gets the package's shipped values.
+     */
+    protected string|UnitEnum|null $preferencesPageNavigationGroup = null;
+
+    protected ?string $preferencesPageNavigationLabel = null;
+
+    protected string|BackedEnum|null $preferencesPageNavigationIcon = null;
+
+    protected ?string $preferencesPageTitle = null;
+
     protected bool $notificationCenterPage = false;
 
     protected bool $notificationSettingsPage = false;
@@ -114,14 +136,84 @@ class NotificationsMaxPlugin implements Plugin
     // ---------------------------------------------------------------------
 
     /**
-     * Enable the user-facing notification preferences (per-channel toggles
-     * per type). The page itself sits behind the user-dropdown link rather
-     * than the sidebar — call this on every panel where end users should
-     * be able to manage their personal channel preferences.
+     * Enable the user-facing notification preferences page (per-channel
+     * toggles per type). By default the page is hidden from the sidebar
+     * and reached via the NotificationCenter "Preferences" header
+     * action — opt into a sidebar entry with
+     * {@see preferencesPageInNavigation()}.
      */
     public function preferencesPage(bool $condition = true): static
     {
         $this->preferencesPage = $condition;
+
+        return $this;
+    }
+
+    /**
+     * Show the preferences page in the panel's sidebar. The page is
+     * always reachable by URL (and via the NotificationCenter header
+     * action); this controls only whether it gets a permanent sidebar
+     * entry. Group, label, and icon are overridable separately — see
+     * {@see preferencesPageNavigationGroup()},
+     * {@see preferencesPageNavigationLabel()},
+     * {@see preferencesPageNavigationIcon()}.
+     */
+    public function preferencesPageInNavigation(bool $condition = true): static
+    {
+        $this->preferencesPageInNavigation = $condition;
+
+        return $this;
+    }
+
+    /**
+     * Override the sidebar navigation group the preferences page slots
+     * into. Pass a string label ("Settings", "Account", …) or a
+     * UnitEnum case from the host's navigation-group enum. The
+     * package's default is "Settings".
+     */
+    public function preferencesPageNavigationGroup(string|UnitEnum|null $group): static
+    {
+        $this->preferencesPageNavigationGroup = $group;
+
+        return $this;
+    }
+
+    /**
+     * Override the sidebar label for the preferences page. Distinct
+     * from {@see preferencesPageTitle()} — the label is what appears in
+     * the sidebar; the title is what renders as the page's H1 / browser
+     * tab. The package's default label is "My notification preferences".
+     */
+    public function preferencesPageNavigationLabel(?string $label): static
+    {
+        $this->preferencesPageNavigationLabel = $label;
+
+        return $this;
+    }
+
+    /**
+     * Override the navigation icon for the preferences page. Same three
+     * usage shapes as {@see notificationSettingsIcon()}: string asset,
+     * BackedEnum case, or null to suppress the icon. The package's
+     * default is the outlined-bell heroicon.
+     */
+    public function preferencesPageNavigationIcon(string|BackedEnum|null $icon): static
+    {
+        $this->preferencesPageNavigationIcon = $icon;
+
+        return $this;
+    }
+
+    /**
+     * Override the preferences page's title (H1 / browser tab / breadcrumb
+     * leaf). Defaults to "Notification preferences". Hosts whose
+     * navigation already lives under a "Notifications" group often
+     * shorten this to just "Preferences" to avoid repetition in the
+     * breadcrumb trail.
+     */
+    public function preferencesPageTitle(?string $title): static
+    {
+        $this->preferencesPageTitle = $title;
 
         return $this;
     }
@@ -200,6 +292,31 @@ class NotificationsMaxPlugin implements Plugin
     public function hasPreferencesPage(): bool
     {
         return $this->preferencesPage;
+    }
+
+    public function hasPreferencesPageInNavigation(): bool
+    {
+        return $this->preferencesPageInNavigation;
+    }
+
+    public function getPreferencesPageNavigationGroup(): string|UnitEnum|null
+    {
+        return $this->preferencesPageNavigationGroup;
+    }
+
+    public function getPreferencesPageNavigationLabel(): ?string
+    {
+        return $this->preferencesPageNavigationLabel;
+    }
+
+    public function getPreferencesPageNavigationIcon(): string|BackedEnum|null
+    {
+        return $this->preferencesPageNavigationIcon;
+    }
+
+    public function getPreferencesPageTitle(): ?string
+    {
+        return $this->preferencesPageTitle;
     }
 
     public function hasNotificationCenterPage(): bool

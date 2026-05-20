@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Devletes\NotificationsMax\Filament\Pages;
 
+use BackedEnum;
 use Devletes\NotificationsMax\Contracts\TenantResolver;
 use Devletes\NotificationsMax\Filament\Pages\Concerns\BuildsNotificationPrefsLayout;
 use Devletes\NotificationsMax\Models\UserNotificationPreference;
+use Devletes\NotificationsMax\NotificationsMaxPlugin;
 use Devletes\NotificationsMax\Registry\NotificationType;
 use Devletes\NotificationsMax\Registry\NotificationTypeRegistry;
 use Devletes\NotificationsMax\Services\NotificationContentResolver;
@@ -19,6 +21,7 @@ use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
+use Throwable;
 use UnitEnum;
 
 /**
@@ -40,14 +43,57 @@ class NotificationPreferences extends Page implements HasForms
     use InteractsWithForms;
 
     /**
-     * Sidebar nav is suppressed by default — the page is reachable from
-     * the user-dropdown link the plugin auto-registers when either the
-     * admin or user side is enabled. Hosts that prefer a permanent
-     * sidebar shortcut subclass and flip this back to true.
+     * Sidebar nav is suppressed by default — the page is always reachable
+     * from the NotificationCenter "Preferences" header action regardless.
+     * Hosts opt in to a permanent sidebar entry by calling
+     * `NotificationsMaxPlugin::make()->preferencesPageInNavigation()` on
+     * the relevant panel; the page reads that flag here.
      */
     public static function shouldRegisterNavigation(): bool
     {
-        return false;
+        return static::plugin()?->hasPreferencesPageInNavigation() ?? false;
+    }
+
+    /**
+     * @return string|UnitEnum|null
+     */
+    public static function getNavigationGroup(): string|UnitEnum|null
+    {
+        return static::plugin()?->getPreferencesPageNavigationGroup() ?? static::$navigationGroup;
+    }
+
+    public static function getNavigationLabel(): string
+    {
+        return static::plugin()?->getPreferencesPageNavigationLabel()
+            ?? static::$navigationLabel
+            ?? 'My notification preferences';
+    }
+
+    public static function getNavigationIcon(): string|BackedEnum|null
+    {
+        return static::plugin()?->getPreferencesPageNavigationIcon();
+    }
+
+    public function getTitle(): string
+    {
+        return static::plugin()?->getPreferencesPageTitle()
+            ?? static::$title
+            ?? 'Notification preferences';
+    }
+
+    /**
+     * Cheap shortcut to the plugin instance on the current panel. Returns
+     * null when the page renders outside a panel context (tests booted
+     * without Filament, console renders, etc.) — every caller already
+     * threads through a default in that case.
+     */
+    protected static function plugin(): ?NotificationsMaxPlugin
+    {
+        try {
+            return NotificationsMaxPlugin::get();
+        } catch (Throwable) {
+            return null;
+        }
     }
 
     protected static string|UnitEnum|null $navigationGroup = 'Settings';
@@ -204,23 +250,27 @@ class NotificationPreferences extends Page implements HasForms
     }
 
     /**
+     * Breadcrumbs read as `navLabel > title`. Skips the navigation group
+     * (e.g. "Settings") because users on this page already saw the
+     * group in the sidebar before navigating — repeating it in the
+     * trail is noise. Skips the title when it equals the nav label so
+     * a host who didn't override both doesn't get a duplicated leaf.
+     *
      * @return array<int|string, string>
      */
     public function getBreadcrumbs(): array
     {
         $breadcrumbs = [];
 
-        $group = static::getNavigationGroup();
-
-        if ($group instanceof UnitEnum) {
-            $group = $group->name;
+        $navLabel = static::getNavigationLabel();
+        if ($navLabel !== '') {
+            $breadcrumbs[] = $navLabel;
         }
 
-        if (is_string($group) && $group !== '') {
-            $breadcrumbs[] = $group;
+        $title = $this->getTitle();
+        if ($title !== '' && $title !== $navLabel) {
+            $breadcrumbs[] = $title;
         }
-
-        $breadcrumbs[] = static::getNavigationLabel() ?: (static::$title ?? 'Notifications');
 
         return $breadcrumbs;
     }
