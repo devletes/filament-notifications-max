@@ -2,7 +2,7 @@
 
 Real-time, preference-driven notifications for Filament.
 
-> **Status: pre-release.** Under active development inside the HRMS project. API is not yet stable. Do not use in other projects until the first tagged release.
+> **Status: pre-release.** Under active development; API is not yet stable. Do not use in other projects until the first tagged release.
 
 ## What it will do
 

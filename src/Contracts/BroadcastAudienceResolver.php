@@ -14,8 +14,9 @@ use Illuminate\Database\Eloquent\Builder;
  * up to the implementation. The shipped default stores `{"user_ids": [1,2]}`
  * (explicit user multi-select); the shipped role-based alternative stores
  * `{"role_ids": [1,2]}`. A host app with a richer targeting system (e.g.
- * HRMS's `AppliesTo` DSL) can bind its own implementation against this
- * contract and store whatever shape its matcher understands.
+ * an `AppliesTo`-style rule DSL covering roles + departments + locations)
+ * can bind its own implementation against this contract and store
+ * whatever shape its matcher understands.
  *
  * Four responsibilities kept on one contract because they all pivot on the
  * same `audience` array and belong logically together:

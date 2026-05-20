@@ -33,7 +33,7 @@ it('accepts a BackedEnum icon for the notification settings nav icon', function 
 });
 
 it('suppresses the notification settings nav icon when passed null', function (): void {
-    // Disabling: hosts (like HRMS) whose information-architecture doesn't
+    // Disabling: hosts whose information-architecture doesn't
     // use icons in some clusters call `->notificationSettingsIcon(null)`
     // so the settings link renders as plain text. Filament's nav
     // component skips the icon slot when getNavigationIcon() returns null.

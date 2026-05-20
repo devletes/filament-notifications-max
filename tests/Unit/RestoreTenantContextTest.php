@@ -14,7 +14,7 @@ use Filament\Panel;
  * + Filament::registerPanel()` doesn't fully boot the panel the way a
  * real PanelProvider does, so the middleware's auto-discovery loop
  * doesn't see the test panel as tenanted. The integration is exercised
- * by HRMS in production; closing the unit-test gap is a follow-up.
+ * in production by host apps; closing the unit-test gap is a follow-up.
  *
  * What this file DOES cover:
  *   - State is clean after the next handler returns

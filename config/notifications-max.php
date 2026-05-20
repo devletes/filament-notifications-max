@@ -21,7 +21,7 @@ return [
     |
     | Dot-notation config key that holds the host app's notification-type
     | definitions. Defaults to `notifications` (i.e. config/notifications.php).
-    | Point to a different key (e.g. `hrms-events.types`) when the default
+    | Point to a different key (e.g. `app-events.types`) when the default
     | name collides with an existing config file in the host app.
     |
     | Types may also be registered programmatically at runtime via

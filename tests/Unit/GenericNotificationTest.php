@@ -107,7 +107,7 @@ it('buildFilamentPayload HTML-escapes the push body before handing it to Filamen
 it('buildFilamentPayload leaves plain-text bodies byte-identical to pre-change behaviour', function (): void {
     // Regression guard: a body whose template + context values contain
     // no HTML special characters renders identically before and after
-    // the e()-on-bridge change so existing HRMS notification copy stays
+    // the e()-on-bridge change so existing notification copy stays
     // pixel-stable.
     $payload = (new GenericNotification('demo.type', [
         'name' => 'Alice',
