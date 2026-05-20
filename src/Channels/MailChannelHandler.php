@@ -67,11 +67,13 @@ class MailChannelHandler implements ChannelHandler
             'type' => $type,
         ], $this->resolveBrand($notifiable));
 
-        // Always view-mode rendering — `resolveTemplateView()` guarantees
-        // a registered template name. The historical `->line($body)`
-        // fallback escaped HTML, which silently mangled rich-text bodies
-        // when a template was missing or misspelled.
-        $message->view($this->resolveTemplateView($templateName), $viewData);
+        // Markdown-mode rendering — runs Laravel's Markdown pipeline,
+        // which registers the `mail::` view namespace (so `@component('mail::message')`
+        // resolves), applies the configured mail theme, and inlines CSS for
+        // clients that strip `<style>` tags. `->view()` skips all three and
+        // throws "No hint path defined for [mail]" on any template that uses
+        // the mail components.
+        $message->markdown($this->resolveTemplateView($templateName), $viewData);
 
         // Mail collapses multiple actions to its primary one — Laravel's
         // MailMessage convention is a single CTA.
