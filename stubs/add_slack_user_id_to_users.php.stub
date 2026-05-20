@@ -1,0 +1,47 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * Per-user Slack destination column. Stored as a string rather than a
+ * separate routing table because there is exactly one Slack identity
+ * per user (Slack itself enforces 1:1 email <-> workspace member) and
+ * the column lives where Laravel's notification routing already looks
+ * for it via the {@see \Devletes\NotificationsMax\Concerns\NotifiableViaMax} trait.
+ *
+ * Width:
+ *   Slack user IDs are 11 characters today (`U` + 10 alphanumeric).
+ *   Channel IDs are 11 chars (`C` / `G` / `D` + 10). 50 leaves
+ *   headroom for any Slack ID-format change and stays well inside
+ *   InnoDB's 191-char index limit on utf8mb4 if anyone ever wants to
+ *   index this column.
+ *
+ * Position:
+ *   Placed after `email` because the package's auto-resolve listener
+ *   reads `email` and writes `slack_user_id` — keeping them adjacent
+ *   makes the relationship visible in schema dumps and table viewers.
+ *   Falls back to no-position when `email` doesn't exist (custom user
+ *   schemas).
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::table('users', function (Blueprint $table): void {
+            $column = $table->string('slack_user_id', 50)->nullable();
+
+            if (Schema::hasColumn('users', 'email')) {
+                $column->after('email');
+            }
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::table('users', function (Blueprint $table): void {
+            $table->dropColumn('slack_user_id');
+        });
+    }
+};

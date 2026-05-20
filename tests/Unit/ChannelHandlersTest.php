@@ -93,7 +93,7 @@ it('MailChannelHandler resolves a registered template view', function (): void {
     $message = (new MailChannelHandler(app(NotificationContentResolver::class)))
         ->send($user, $notification);
 
-    expect($message->view)->toBe('filament-notifications-max::mail.default');
+    expect($message->markdown)->toBe('filament-notifications-max::mail.default');
 });
 
 it('MailChannelHandler falls back to the first registered template when name is misspelled and logs a warning', function (): void {
@@ -134,7 +134,7 @@ it('MailChannelHandler falls back to the first registered template when name is 
     $message = (new MailChannelHandler(app(NotificationContentResolver::class)))
         ->send($user, $notification);
 
-    expect($message->view)->toBe('filament-notifications-max::mail.default');
+    expect($message->markdown)->toBe('filament-notifications-max::mail.default');
     Log::shouldHaveReceived('warning')->once();
 });
 

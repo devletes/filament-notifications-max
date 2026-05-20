@@ -17,6 +17,7 @@ use Devletes\NotificationsMax\Models\BroadcastNotification;
 use Devletes\NotificationsMax\Observers\NotificationTenantObserver;
 use Devletes\NotificationsMax\Policies\BroadcastNotificationPolicy;
 use Devletes\NotificationsMax\Registry\NotificationTypeRegistry;
+use Devletes\NotificationsMax\Services\SlackUserIdResolver;
 use Filament\Support\Assets\Js;
 use Filament\Support\Facades\FilamentAsset;
 use Illuminate\Notifications\DatabaseNotification;
@@ -43,7 +44,11 @@ class NotificationsMaxServiceProvider extends PackageServiceProvider
                 'create_notification_type_overrides_table',
                 'add_last_processed_id_to_broadcast_notifications_table',
             ])
-            ->hasCommand(\Devletes\NotificationsMax\Console\SeedContentCommand::class);
+            ->hasCommands([
+                \Devletes\NotificationsMax\Console\SeedContentCommand::class,
+                \Devletes\NotificationsMax\Console\InstallSlackCommand::class,
+                \Devletes\NotificationsMax\Console\SyncSlackUserIdsCommand::class,
+            ]);
     }
 
     public function packageRegistered(): void
@@ -125,6 +130,8 @@ class NotificationsMaxServiceProvider extends PackageServiceProvider
         $this->registerBroadcastAdminCustomType();
 
         $this->registerHoverMarkAsRead();
+
+        $this->registerSlackUserIdAutoResolve();
 
         // Prepend our package's view path to the `filament-notifications`
         // namespace so our overridden `database-notifications.blade.php`
@@ -209,6 +216,62 @@ class NotificationsMaxServiceProvider extends PackageServiceProvider
             ],
             package: 'devletes/notifications-max',
         );
+    }
+
+    /**
+     * Auto-populate `slack_user_id` on freshly-created notifiable models by
+     * looking up their email against Slack's `users.lookupByEmail` endpoint.
+     *
+     * Two gates so we register exactly when it's useful:
+     *
+     *   - `notifications-max.slack.auto_resolve_user_id` config flag
+     *   - a configured Slack bot token (without it the resolver throws on
+     *     every user save — noisy and useless)
+     *
+     * The listener:
+     *   - Skips users whose email is empty or whose slack_user_id already set
+     *   - Catches every Throwable (network blip, rate limit, scope error) and
+     *     reports it. Slack lookup failures must never block user creation
+     *   - Uses `forceFill` + `saveQuietly` to avoid re-firing `updated` /
+     *     `saved` listeners (which would otherwise see slack_user_id flapping
+     *     between null and the resolved id within one DB transaction)
+     */
+    protected function registerSlackUserIdAutoResolve(): void
+    {
+        if (! config('notifications-max.slack.auto_resolve_user_id', false)) {
+            return;
+        }
+
+        // No token → no point. Avoids logging a RuntimeException for every
+        // user creation on installs that haven't run install-slack yet.
+        if (! config('services.slack.notifications.bot_user_oauth_token')) {
+            return;
+        }
+
+        $userModel = config('auth.providers.users.model');
+
+        if (! is_string($userModel) || ! class_exists($userModel)) {
+            return;
+        }
+
+        $userModel::created(function ($model): void {
+            $email = $model->getAttribute('email');
+            $existing = $model->getAttribute('slack_user_id');
+
+            if (empty($email) || ! empty($existing)) {
+                return;
+            }
+
+            try {
+                $id = app(SlackUserIdResolver::class)->resolve($email);
+
+                if ($id !== null) {
+                    $model->forceFill(['slack_user_id' => $id])->saveQuietly();
+                }
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        });
     }
 
     /**

@@ -58,13 +58,24 @@ return [
     |
     | Logical channels users see in preferences ("push", "email", "sms",
     | "slack", …). Each entry is a self-describing definition the package
-    | uses for THREE things:
+    | uses for FOUR things:
     |
     |   1. Routing      — `physical` lists the Laravel notification channels
     |                     the dispatcher actually fires. "push" combines
     |                     database + broadcast so users either get both or
     |                     neither (a toast without a bell row would vanish
     |                     forever).
+    |
+    |                     `route_via` (optional) names an attribute on the
+    |                     notifiable model whose value is returned as the
+    |                     channel destination. Read by the
+    |                     {@see \Devletes\NotificationsMax\Concerns\NotifiableViaMax}
+    |                     trait — replacing `use Notifiable;` with
+    |                     `use NotifiableViaMax;` on your User model is how
+    |                     hosts opt into config-driven routing instead of
+    |                     hand-writing a `routeNotificationForX()` method
+    |                     per channel. Empty / null attribute values yield
+    |                     `false` (skip delivery for this notifiable).
     |
     |   2. Content      — `content_fields` declares the fields admins fill
     |                     in when overriding content for this channel. Each
@@ -142,24 +153,26 @@ return [
         // 'sms' => [
         //     'label' => 'SMS',
         //     'physical' => ['twilio'],  // or ['vonage'] — pick one
+        //     'route_via' => 'phone',
         //     'content_fields' => ['body' => 'text'],
         // ],
 
+        // Slack — the `notifications-max:install-slack` command writes this
+        // block automatically. The shape below is what the command produces;
+        // shown here for reference (slack mrkdwn dialect, route via the
+        // slack_user_id column the command's migration adds).
         // 'slack' => [
         //     'label' => 'Slack',
         //     'physical' => ['slack'],
-        //     // Slack's native flavour is mrkdwn — *bold*, _italic_,
-        //     // ~strike~, `code`, <url|label>. Templates are trusted
-        //     // mrkdwn; interpolated context values are backslash-escaped
-        //     // by GenericNotification::render() so a user-supplied
-        //     // `*foo*` doesn't accidentally trigger bold formatting.
         //     'richness' => 'markdown',
-        //     'content_fields' => ['body' => 'markdown'],
+        //     'route_via' => 'slack_user_id',
+        //     'content_fields' => ['body' => 'text'],
         // ],
 
         // 'discord' => [
         //     'label' => 'Discord',
         //     'physical' => ['discord'],
+        //     'route_via' => 'discord_user_id',
         //     'content_fields' => ['body' => 'text'],
         // ],
     ],
@@ -664,6 +677,31 @@ return [
             'max' => 0,         // 0 = unlimited
             'per_minutes' => 5,
         ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Slack
+    |--------------------------------------------------------------------------
+    |
+    | Slack-channel-specific settings. The `notifications-max:install-slack`
+    | command writes this block when run.
+    |
+    | auto_resolve_user_id
+    |   When true AND a Slack bot token is configured at
+    |   `services.slack.notifications.bot_user_oauth_token`, the package
+    |   registers an Eloquent `created` listener on the auth user model
+    |   (`config('auth.providers.users.model')`) that calls Slack's
+    |   `users.lookupByEmail` and writes the result to the model's
+    |   `slack_user_id` column. Failures are logged via `report()` and
+    |   never block user creation.
+    |
+    |   Gated on token presence so installs that haven't run install-slack
+    |   yet don't log a RuntimeException on every user save.
+    |
+    */
+    'slack' => [
+        'auto_resolve_user_id' => env('NOTIFICATIONS_MAX_SLACK_AUTO_RESOLVE', true),
     ],
 
 ];
