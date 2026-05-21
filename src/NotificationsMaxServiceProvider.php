@@ -12,12 +12,14 @@ use Devletes\NotificationsMax\Contracts\TenantResolver;
 use Devletes\NotificationsMax\Defaults\ImmediateBroadcastReleasePipeline;
 use Devletes\NotificationsMax\Defaults\PathActionUrlBuilder;
 use Devletes\NotificationsMax\Defaults\SubdomainActionUrlBuilder;
+use Devletes\NotificationsMax\Http\Controllers\NotificationRedirectController;
 use Devletes\NotificationsMax\Listeners\FireDatabaseNotificationsSent;
 use Devletes\NotificationsMax\Models\BroadcastNotification;
 use Devletes\NotificationsMax\Observers\NotificationTenantObserver;
 use Devletes\NotificationsMax\Policies\BroadcastNotificationPolicy;
 use Devletes\NotificationsMax\Registry\NotificationTypeRegistry;
 use Devletes\NotificationsMax\Services\SlackUserIdResolver;
+use Illuminate\Support\Facades\Route;
 use Filament\Support\Assets\Js;
 use Filament\Support\Facades\FilamentAsset;
 use Illuminate\Notifications\DatabaseNotification;
@@ -132,6 +134,8 @@ class NotificationsMaxServiceProvider extends PackageServiceProvider
         $this->registerHoverMarkAsRead();
 
         $this->registerSlackUserIdAutoResolve();
+
+        $this->registerRedirectRoute();
 
         // Prepend our package's view path to the `filament-notifications`
         // namespace so our overridden `database-notifications.blade.php`
@@ -272,6 +276,35 @@ class NotificationsMaxServiceProvider extends PackageServiceProvider
                 report($e);
             }
         });
+    }
+
+    /**
+     * Register the click-time redirect route used by multi-panel hosts.
+     *
+     * The route lives under a configurable prefix (default
+     * `notifications-max`) so it can never collide with a Filament
+     * panel mounted at the application root. When a host runs a single
+     * panel they can disable the route entirely via
+     * `notifications-max.redirect_route.enabled = false` and save the
+     * extra HTTP hop per notification click.
+     */
+    protected function registerRedirectRoute(): void
+    {
+        if (! config('notifications-max.redirect_route.enabled', true)) {
+            return;
+        }
+
+        $prefix = trim((string) config('notifications-max.redirect_route.prefix', 'notifications-max'), '/');
+
+        if ($prefix === '') {
+            // An empty prefix would collide with anything at the application
+            // root. Refuse rather than silently routing /go/{id}.
+            return;
+        }
+
+        Route::middleware(['web', 'auth'])
+            ->get($prefix . '/go/{notification}', NotificationRedirectController::class)
+            ->name('notifications-max.go');
     }
 
     /**

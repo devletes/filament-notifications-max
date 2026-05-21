@@ -63,6 +63,11 @@ abstract class TestCase extends BaseTestCase
 
         $app['config']->set('auth.providers.users.model', User::class);
 
+        // HTTP tests need an APP_KEY for the encrypter (cookies, session).
+        // Use a deterministic 32-byte key — the actual value doesn't matter
+        // for tests, only that it's present and the right length.
+        $app['config']->set('app.key', 'base64:'.base64_encode(str_repeat('a', 32)));
+
         // Force the tenant observer to register at boot. In production
         // `multi_tenant` defaults to 'auto' which probes the schema, but
         // in tests the schema check runs BEFORE setUp's migrations land,

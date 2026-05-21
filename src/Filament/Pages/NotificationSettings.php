@@ -14,6 +14,7 @@ use Devletes\NotificationsMax\Services\NotificationContentResolver;
 use Filament\Actions\Action;
 use Filament\Forms\Components\RichEditor;
 use Filament\Forms\Components\Select;
+use Filament\Facades\Filament;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Concerns\InteractsWithForms;
@@ -119,7 +120,7 @@ class NotificationSettings extends Page implements HasForms
         $settings = [];
         $registryChannels = array_keys(app(NotificationContentResolver::class)->allChannels());
 
-        foreach ($registry->all() as $key => $type) {
+        foreach ($this->typesForCurrentPanel($registry) as $key => $type) {
             $safe = $this->safeKey($key);
             $allowed = $this->loadAllowedChannels($tenantId, $key, $type);
 
@@ -149,7 +150,7 @@ class NotificationSettings extends Page implements HasForms
     public function form(Schema $schema): Schema
     {
         $registry = app(NotificationTypeRegistry::class);
-        $types = collect($registry->all());
+        $types = collect($this->typesForCurrentPanel($registry));
 
         $categories = $types
             ->groupBy(fn (NotificationType $t) => $t->category)
@@ -224,7 +225,7 @@ class NotificationSettings extends Page implements HasForms
 
         $submitted = $this->form->getState()['settings'] ?? [];
 
-        foreach ($registry->all() as $key => $type) {
+        foreach ($this->typesForCurrentPanel($registry) as $key => $type) {
             // Mandatory types ignore admin allowance — they always fire on
             // their config-level channel set. Skip persisting overrides for
             // them so a stale row never accidentally narrows delivery.
@@ -262,6 +263,41 @@ class NotificationSettings extends Page implements HasForms
             ->title('Notification settings saved')
             ->success()
             ->send();
+    }
+
+    /**
+     * Filter the registry to types this panel actually hosts.
+     *
+     * A tenant admin configuring allowances on the admin panel shouldn't
+     * be shown — let alone be allowed to save settings for — types
+     * targeted at the employee panel. Types with `panels === null`
+     * (panel-agnostic, e.g. account events) appear on every panel's
+     * settings page.
+     *
+     * Falls back to the entire registry when no panel is bound (e.g.
+     * console rendering of the page outside a request), which preserves
+     * the pre-multi-panel behaviour.
+     *
+     * @return array<string, NotificationType>
+     */
+    protected function typesForCurrentPanel(NotificationTypeRegistry $registry): array
+    {
+        $panelId = $this->currentPanelId();
+
+        if ($panelId === null) {
+            return $registry->all();
+        }
+
+        return $registry->allForPanels([$panelId]);
+    }
+
+    protected function currentPanelId(): ?string
+    {
+        try {
+            return Filament::getCurrentPanel()?->getId();
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     // ------------------------------------------------------------------

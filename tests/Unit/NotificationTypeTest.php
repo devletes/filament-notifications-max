@@ -123,3 +123,55 @@ it('channelIsOnByDefault returns true only for channels in default_channels', fu
     expect($type->channelIsOnByDefault('push'))->toBeTrue()
         ->and($type->channelIsOnByDefault('email'))->toBeFalse();
 });
+
+it('panels defaults to null when not declared at config level', function (): void {
+    $type = NotificationType::fromConfig('demo.key', [
+        'target_panel' => 'admin',
+    ]);
+
+    expect($type->panels)->toBeNull()
+        ->and($type->targetPanel)->toBe('admin');
+});
+
+it('panels accepts an array of panel ids', function (): void {
+    $type = NotificationType::fromConfig('demo.key', [
+        'panels' => ['admin', 'employee'],
+        'target_panel' => 'employee',
+    ]);
+
+    expect($type->panels)->toBe(['admin', 'employee'])
+        ->and($type->targetPanel)->toBe('employee');
+});
+
+it('panels accepts a single string, promoted to a single-element array', function (): void {
+    $type = NotificationType::fromConfig('demo.key', [
+        'panels' => 'admin',
+    ]);
+
+    expect($type->panels)->toBe(['admin']);
+});
+
+it('panels cleans whitespace and drops empties', function (): void {
+    $type = NotificationType::fromConfig('demo.key', [
+        'panels' => [' admin ', '', null, 'employee'],
+    ]);
+
+    expect($type->panels)->toBe(['admin', 'employee']);
+});
+
+it('panels falls back to type_defaults when omitted on the type', function (): void {
+    config(['notifications-max.type_defaults' => [
+        'icon' => 'heroicon-o-bell',
+        'target_panel' => 'admin',
+        'panels' => ['admin', 'employee'],
+        'category' => 'general',
+        'default_channels' => ['push'],
+        'allowed_channels' => ['push', 'email'],
+    ]]);
+
+    $type = NotificationType::fromConfig('demo.key', [
+        'label' => 'Minimal',
+    ]);
+
+    expect($type->panels)->toBe(['admin', 'employee']);
+});

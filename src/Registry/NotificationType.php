@@ -69,6 +69,26 @@ final class NotificationType
          */
         public readonly ?string $status,
         public readonly string $targetPanel,
+        /**
+         * Panels that can render the record this notification points at. The
+         * URL resolver uses this list to keep multi-panel users (e.g. an
+         * admin who is also an employee) on the panel they clicked from
+         * instead of yanking them to whichever panel the dispatcher picked.
+         *
+         * Semantics:
+         *   - array<string>  → the record exists on these panels; the
+         *                      resolver picks one based on the clicker's
+         *                      context (current panel ∩ panels, else
+         *                      {@see $targetPanel} if accessible, else the
+         *                      first accessible entry).
+         *   - null           → no panel constraint declared at the type
+         *                      level. For polymorphic types (approvals,
+         *                      comments) the dispatch site provides the
+         *                      panels via the address payload instead.
+         *
+         * @var array<int, string>|null
+         */
+        public readonly ?array $panels,
         public readonly ?string $actionResource,
         public readonly ?string $actionRecordKey,
         /**
@@ -140,6 +160,7 @@ final class NotificationType
             color: $config['color'] ?? null,
             status: $config['status'] ?? null,
             targetPanel: $config['target_panel'] ?? $defaults['target_panel'] ?? 'admin',
+            panels: self::normalisePanels($config, $defaults),
             actionResource: $config['action_resource'] ?? null,
             actionRecordKey: $config['action_record_key'] ?? null,
             duration: is_int($duration) || $duration === 'persistent' ? $duration : null,
@@ -154,6 +175,49 @@ final class NotificationType
             rateLimit: $config['rate_limit'] ?? null,
             notificationClass: $config['notification_class'] ?? null,
         );
+    }
+
+    /**
+     * Normalise the `panels` config entry. Accepts:
+     *   - array<string>           kept as-is (filtered for non-empty strings)
+     *   - string                  promoted to a single-element array
+     *   - null / missing entry    falls through to `type_defaults.panels`,
+     *                             then to null (no constraint)
+     *
+     * Backward compatibility: when `panels` is omitted entirely AND a
+     * `target_panel` is explicitly declared on the type, the resulting
+     * panel list is left null. The URL resolver applies its own inference
+     * (preferred panel first when no list is given) so existing types
+     * keep their current single-panel routing.
+     *
+     * @param  array<string, mixed>  $config
+     * @param  array<string, mixed>  $defaults
+     * @return array<int, string>|null
+     */
+    protected static function normalisePanels(array $config, array $defaults): ?array
+    {
+        $raw = array_key_exists('panels', $config)
+            ? $config['panels']
+            : ($defaults['panels'] ?? null);
+
+        if ($raw === null) {
+            return null;
+        }
+
+        if (is_string($raw)) {
+            $raw = [$raw];
+        }
+
+        if (! is_array($raw)) {
+            return null;
+        }
+
+        $clean = array_values(array_filter(
+            array_map(fn ($p) => is_string($p) ? trim($p) : '', $raw),
+            fn (string $p) => $p !== '',
+        ));
+
+        return $clean === [] ? null : $clean;
     }
 
     /**

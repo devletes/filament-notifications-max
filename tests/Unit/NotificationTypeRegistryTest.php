@@ -32,6 +32,54 @@ it('throws when finding an unregistered key', function (): void {
         ->toThrow(RuntimeException::class, 'is not registered');
 });
 
+it('allForPanels includes types whose panels intersect the requested list', function (): void {
+    config(['notifications' => [
+        'admin.only' => [
+            'label' => 'Admin only',
+            'panels' => ['admin'],
+        ],
+        'employee.only' => [
+            'label' => 'Employee only',
+            'panels' => ['employee'],
+        ],
+        'cross.cutting' => [
+            'label' => 'Cross-cutting',
+            'panels' => ['admin', 'employee'],
+        ],
+    ]]);
+
+    $forEmployee = $this->registry->allForPanels(['employee']);
+
+    expect(array_keys($forEmployee))->toEqualCanonicalizing(['employee.only', 'cross.cutting']);
+});
+
+it('allForPanels always includes types with panels=null (panel-agnostic)', function (): void {
+    config(['notifications' => [
+        'admin.only' => [
+            'label' => 'Admin only',
+            'panels' => ['admin'],
+        ],
+        'account.welcome' => [
+            'label' => 'Welcome',
+            // no `panels` key — panel-agnostic
+        ],
+    ]]);
+
+    $forEmployee = $this->registry->allForPanels(['employee']);
+
+    expect(array_keys($forEmployee))->toContain('account.welcome')
+        ->and(array_keys($forEmployee))->not->toContain('admin.only');
+});
+
+it('allForPanels with an empty list still includes panel-agnostic types', function (): void {
+    config(['notifications' => [
+        'no.constraint' => ['label' => 'Free'],
+        'admin.only' => ['label' => 'Admin', 'panels' => ['admin']],
+    ]]);
+
+    expect(array_keys($this->registry->allForPanels([])))->toBe(['no.constraint']);
+});
+
 it('answers has() correctly for known and unknown keys', function (): void {
     expect($this->registry->has('test.simple'))->toBeTrue()
         ->and($this->registry->has('not.a.real.type'))->toBeFalse();
