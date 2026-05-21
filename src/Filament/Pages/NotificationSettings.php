@@ -266,29 +266,15 @@ class NotificationSettings extends Page implements HasForms
     }
 
     /**
-     * Filter the registry to types this panel actually hosts.
-     *
-     * A tenant admin configuring allowances on the admin panel shouldn't
-     * be shown — let alone be allowed to save settings for — types
-     * targeted at the employee panel. Types with `panels === null`
-     * (panel-agnostic, e.g. account events) appear on every panel's
-     * settings page.
-     *
-     * Falls back to the entire registry when no panel is bound (e.g.
-     * console rendering of the page outside a request), which preserves
-     * the pre-multi-panel behaviour.
-     *
      * @return array<string, NotificationType>
      */
     protected function typesForCurrentPanel(NotificationTypeRegistry $registry): array
     {
         $panelId = $this->currentPanelId();
 
-        if ($panelId === null) {
-            return $registry->all();
-        }
-
-        return $registry->allForPanels([$panelId]);
+        return $panelId === null
+            ? $registry->all()
+            : $registry->allForPanels([$panelId]);
     }
 
     protected function currentPanelId(): ?string

@@ -70,21 +70,9 @@ final class NotificationType
         public readonly ?string $status,
         public readonly string $targetPanel,
         /**
-         * Panels that can render the record this notification points at. The
-         * URL resolver uses this list to keep multi-panel users (e.g. an
-         * admin who is also an employee) on the panel they clicked from
-         * instead of yanking them to whichever panel the dispatcher picked.
-         *
-         * Semantics:
-         *   - array<string>  → the record exists on these panels; the
-         *                      resolver picks one based on the clicker's
-         *                      context (current panel ∩ panels, else
-         *                      {@see $targetPanel} if accessible, else the
-         *                      first accessible entry).
-         *   - null           → no panel constraint declared at the type
-         *                      level. For polymorphic types (approvals,
-         *                      comments) the dispatch site provides the
-         *                      panels via the address payload instead.
+         * Panels that can render this notification's record. Null = no
+         * registry-level constraint (polymorphic types — dispatch site
+         * supplies the address).
          *
          * @var array<int, string>|null
          */
@@ -178,18 +166,6 @@ final class NotificationType
     }
 
     /**
-     * Normalise the `panels` config entry. Accepts:
-     *   - array<string>           kept as-is (filtered for non-empty strings)
-     *   - string                  promoted to a single-element array
-     *   - null / missing entry    falls through to `type_defaults.panels`,
-     *                             then to null (no constraint)
-     *
-     * Backward compatibility: when `panels` is omitted entirely AND a
-     * `target_panel` is explicitly declared on the type, the resulting
-     * panel list is left null. The URL resolver applies its own inference
-     * (preferred panel first when no list is given) so existing types
-     * keep their current single-panel routing.
-     *
      * @param  array<string, mixed>  $config
      * @param  array<string, mixed>  $defaults
      * @return array<int, string>|null

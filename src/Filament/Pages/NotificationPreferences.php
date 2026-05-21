@@ -212,27 +212,6 @@ class NotificationPreferences extends Page implements HasForms
     }
 
     /**
-     * Filter the registry down to types the user can actually receive
-     * given the panels they have access to.
-     *
-     * Why: a multi-panel host (e.g. an HRMS with separate admin and
-     * employee panels) will register types that only ever fan out to one
-     * audience. Showing every type on every panel's preferences page
-     * means employees see admin-only toggles they can't act on, and
-     * admin-only types crowd the employee list. Filtering by panel
-     * access keeps each user's preferences page scoped to the
-     * notifications they would actually receive.
-     *
-     * Resolution:
-     *   1. Compute the set of registered panels the user can access via
-     *      Filament's {@see FilamentUser} contract. Users without the
-     *      contract default to "all panels" (Filament's stock behaviour).
-     *   2. Hand the panel ids to
-     *      {@see NotificationTypeRegistry::allForPanels()} which keeps
-     *      types whose `panels` declaration intersects this set, plus
-     *      any type with `panels === null` (panel-agnostic, e.g. an
-     *      account-level welcome).
-     *
      * @return array<string, NotificationType>
      */
     protected function typesForUser(NotificationTypeRegistry $registry, ?Authenticatable $user): array
@@ -251,10 +230,8 @@ class NotificationPreferences extends Page implements HasForms
             return [];
         }
 
+        // No FilamentUser contract = Filament's default-allow.
         if ($user === null || ! $user instanceof FilamentUser) {
-            // No contract to consult; Filament's default is to allow every
-            // panel — return every registered id so the registry filter
-            // doesn't accidentally drop types the user could in fact view.
             return array_keys($panels);
         }
 

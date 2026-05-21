@@ -247,11 +247,7 @@ class GenericNotification extends Notification
             ],
         );
 
-        // Persist the action address alongside the rendered payload so
-        // the redirect controller can resolve the final URL at click
-        // time. Built once here (the same address that buildActions used
-        // for the dispatch-time URL), serialised as an array so it
-        // survives JSON round-trip into `notifications.data`.
+        // Read by the redirect controller at click time.
         $address = $this->buildActionAddress($type);
 
         if ($address !== null) {
@@ -412,28 +408,8 @@ class GenericNotification extends Notification
     }
 
     /**
-     * Back-compat URL builder used when the registry entry doesn't
-     * declare an explicit `actions` array.
-     *
-     * Resolution order (first match wins):
-     *
-     *   1. `context.action_url` — an explicit, pre-built URL supplied by
-     *      the dispatch site. Used verbatim. Lets callers bypass the
-     *      redirect indirection for cases like the welcome email that
-     *      don't route to a Filament resource at all.
-     *
-     *   2. An action address (see {@see buildActionAddress()}) plus the
-     *      package's redirect route → return the route URL keyed by the
-     *      notification's id. The final panel choice is deferred to the
-     *      redirect controller, which has the click context (current
-     *      panel via `?from=`, Referer, etc.) that this dispatch-time
-     *      caller does not.
-     *
-     *   3. Direct synthesis from `action_resource` + `action_record_key`
-     *      via the {@see ActionUrlBuilder} contract. The historical
-     *      path — kept so hosts that disable the redirect route (single-
-     *      panel installs) or notifications with no address payload still
-     *      get a clickable URL.
+     * Back-compat URL builder. Resolution: context.action_url → redirect
+     * route (when an address exists) → direct ActionUrlBuilder call.
      */
     public function buildLegacyActionUrl(NotificationType $type): ?string
     {
@@ -473,26 +449,12 @@ class GenericNotification extends Notification
     }
 
     /**
-     * Construct a {@see NotificationActionAddress} describing where this
-     * notification points, or null when there isn't enough information.
-     *
-     * Sources, in order:
-     *
-     *   1. `context.action` — for polymorphic types (approvals, comments)
-     *      the dispatch site knows the subject and supplies a full address.
-     *      Keys: `resource`, `record_id`, `panels`, `preferred_panel`,
-     *      `tenant_slug` (see {@see NotificationActionAddress::fromArray()}).
-     *
-     *   2. Synthesised from the registry: combines the type's
-     *      `actionResource`, `panels`, and `targetPanel` with the record
-     *      id pulled from `context[actionRecordKey]` and `tenant_slug`
-     *      from the context.
-     *
-     * Returns null when the resource slug or record id can't be resolved.
+     * Resource address for the redirect controller. Sourced from
+     * `context.action` (polymorphic types) or synthesized from the
+     * registry (`actionResource` + `actionRecordKey`).
      */
     public function buildActionAddress(NotificationType $type): ?NotificationActionAddress
     {
-        // Polymorphic types pass the whole address through context.
         if (isset($this->context['action']) && is_array($this->context['action'])) {
             return NotificationActionAddress::fromArray($this->context['action']);
         }
@@ -514,16 +476,9 @@ class GenericNotification extends Notification
             return null;
         }
 
-        // Panels list: explicit registry entry wins; otherwise mirror the
-        // historical single-panel routing by promoting target_panel into a
-        // one-element list. Empty list = "any panel is a candidate" for
-        // the resolver — fine when both fields are absent.
-        $panels = $type->panels;
-
-        if ($panels === null) {
-            $panels = $type->targetPanel !== '' ? [$type->targetPanel] : [];
-        }
-
+        // Mirror the pre-multi-panel single-panel default when only
+        // target_panel is declared.
+        $panels = $type->panels ?? ($type->targetPanel !== '' ? [$type->targetPanel] : []);
         $tenantSlug = $this->context['tenant_slug'] ?? null;
 
         try {
@@ -535,32 +490,21 @@ class GenericNotification extends Notification
                 tenantSlug: is_string($tenantSlug) && $tenantSlug !== '' ? $tenantSlug : null,
             );
         } catch (Throwable) {
-            // Defensive: address validation rejected the inputs. Fall
-            // through to the legacy URL builder instead of crashing.
             return null;
         }
     }
 
     /**
-     * Build the redirect URL for an address, or null when the route isn't
-     * registered (single-panel hosts disable it) or the notification has
-     * no row id yet (out-of-band rendering before dispatch).
+     * Route URL keyed by `$this->id`. Laravel's NotificationSender stamps
+     * the uuid before each channel's send(), so the URL is stable even
+     * though the row hasn't been inserted yet.
      */
     protected function redirectUrlFor(NotificationActionAddress $address): ?string
     {
-        // The route is registered in the package's service provider only
-        // when notifications-max.redirect_route.enabled is true. When the
-        // host turns it off, fall through to the direct URL builder so
-        // single-panel installs keep their one-hop URLs.
         if (! Route::has('notifications-max.go')) {
             return null;
         }
 
-        // Laravel's NotificationSender stamps `$this->id` (a uuid) on the
-        // notification before each channel's `send()` call. That value
-        // becomes the DatabaseNotification row id, so we can name the
-        // redirect URL by it here even though the row hasn't been
-        // inserted yet.
         $notificationId = $this->id;
 
         if (! is_string($notificationId) || $notificationId === '') {

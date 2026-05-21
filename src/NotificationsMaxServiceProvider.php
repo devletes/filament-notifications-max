@@ -279,16 +279,6 @@ class NotificationsMaxServiceProvider extends PackageServiceProvider
         });
     }
 
-    /**
-     * Register the click-time redirect route used by multi-panel hosts.
-     *
-     * The route lives under a configurable prefix (default
-     * `notifications-max`) so it can never collide with a Filament
-     * panel mounted at the application root. When a host runs a single
-     * panel they can disable the route entirely via
-     * `notifications-max.redirect_route.enabled = false` and save the
-     * extra HTTP hop per notification click.
-     */
     protected function registerRedirectRoute(): void
     {
         if (! config('notifications-max.redirect_route.enabled', true)) {
@@ -297,9 +287,8 @@ class NotificationsMaxServiceProvider extends PackageServiceProvider
 
         $prefix = trim((string) config('notifications-max.redirect_route.prefix', 'notifications-max'), '/');
 
+        // Empty prefix would collide with anything at the app root.
         if ($prefix === '') {
-            // An empty prefix would collide with anything at the application
-            // root. Refuse rather than silently routing /go/{id}.
             return;
         }
 

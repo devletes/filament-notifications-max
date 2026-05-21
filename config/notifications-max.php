@@ -45,26 +45,13 @@ return [
 
     'type_defaults' => [
         'icon' => 'heroicon-o-bell',
-        // `target_panel` is the *preferred* panel for this notification's
-        // action URL — used as a tie-breaker when a recipient has access
-        // to more than one of the panels declared in `panels` below, and
-        // as the sole panel when `panels` is omitted.
+        // Preferred panel for the action URL — tie-breaker when the user
+        // has access to multiple `panels`, and the sole panel when
+        // `panels` is omitted.
         'target_panel' => 'admin',
-        // `panels` is the (optional) list of panels that can render the
-        // record this notification points at. When set, the click-time
-        // URL resolver picks one of these — the recipient's current panel
-        // if it's in the list, else `target_panel` if accessible, else
-        // the first accessible entry. When null (the default), the type
-        // is treated as panel-agnostic: the type's `target_panel` is used
-        // verbatim, matching the package's pre-multi-panel behaviour.
-        //
-        // Examples:
-        //   'panels' => ['admin', 'employee']  // tasks visible in both panels
-        //   'panels' => ['admin']              // admin-only resource
-        //   'panels' => null                    // no constraint declared
-        //                                       (polymorphic types — let the
-        //                                       dispatch site supply the
-        //                                       address payload instead)
+        // Panels that can render this record. Null = no registry-level
+        // constraint (polymorphic types supply the address per dispatch).
+        // Example: ['admin', 'employee'] for cross-panel resources.
         'panels' => null,
         'category' => 'general',
         'default_channels' => ['push'],
@@ -726,34 +713,17 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Click-time URL Redirect Route
+    | Click-time Redirect Route
     |--------------------------------------------------------------------------
     |
-    | Multi-panel hosts (e.g. an admin who is also an employee) need the
-    | "View" link on a notification to land in the panel the *recipient* is
-    | currently working in — not the panel the dispatcher happened to pick.
-    | The package solves this by routing every action click through a
-    | redirect endpoint that resolves the destination at click time:
+    | Action clicks go through `GET /{prefix}/go/{notification}?from={panel}`
+    | which resolves the destination panel at click time. The bell and
+    | notification center set `?from=` from the current panel; mail clicks
+    | fall through to the type's preferred panel.
     |
-    |   GET /{prefix}/go/{notification}?from={panel_id}
-    |
-    | The bell + notification center pass the current panel id via `?from=`.
-    | Mail clicks have no `from` — the resolver falls through to the type's
-    | preferred panel, which matches today's "URL baked at dispatch time"
-    | behaviour for email.
-    |
-    | enabled
-    |   When false, the route is not registered and the package falls back
-    |   to the legacy "build the URL at dispatch time" path. Hosts running
-    |   a single panel (and therefore unaffected by the multi-panel issue)
-    |   can switch this off to save one HTTP hop per notification click.
-    |
-    | prefix
-    |   URL prefix the route lives under. Default `notifications-max` puts
-    |   the route at `/notifications-max/go/{notification}`. Pick something
-    |   that won't collide with any Filament panel's resource slugs —
-    |   especially relevant when a panel is mounted at the application
-    |   root (e.g. admin at `/`).
+    | enabled  Turn off on single-panel hosts to save one HTTP hop per click.
+    | prefix   Must not collide with any panel's slugs — relevant when a
+    |          panel is mounted at the app root.
     |
     */
 

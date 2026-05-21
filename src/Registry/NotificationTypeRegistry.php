@@ -133,15 +133,8 @@ class NotificationTypeRegistry
     }
 
     /**
-     * Subset of types relevant to a given panel set. Used by the user
-     * preferences and admin settings pages so multi-panel hosts don't
-     * surface admin-only types on the employee preferences page, etc.
-     *
-     * Inclusion rule:
-     *   - `panels === null` → included (panel-agnostic; types like
-     *     account-wide events that aren't tied to a specific panel).
-     *   - `panels` intersects `$panelIds` → included.
-     *   - no overlap → excluded.
+     * Types whose `panels` intersect `$panelIds`. Panel-agnostic types
+     * (panels=null) are always included.
      *
      * @param  array<int, string>  $panelIds
      * @return array<string, NotificationType>
@@ -150,13 +143,8 @@ class NotificationTypeRegistry
     {
         return array_filter(
             $this->all(),
-            function (NotificationType $type) use ($panelIds): bool {
-                if ($type->panels === null) {
-                    return true;
-                }
-
-                return array_intersect($type->panels, $panelIds) !== [];
-            },
+            fn (NotificationType $type): bool => $type->panels === null
+                || array_intersect($type->panels, $panelIds) !== [],
         );
     }
 

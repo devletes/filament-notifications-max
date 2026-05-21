@@ -9,25 +9,7 @@ use InvalidArgumentException;
 /**
  * Resource address carried on a notification, resolved to a URL at click time.
  *
- * Replaces the pattern of baking a single URL into `data.action_url` at
- * dispatch time. Instead, dispatch sites declare *where the underlying
- * record lives* (which resource, on which panel or panels), and the URL
- * is built when the recipient clicks — using the panel they were on at
- * the moment of the click. That keeps multi-panel users (admin-and-also-
- * employee in HRMS, for instance) in the panel they were working in.
- *
- * Persisted on the notification row as `data.action`:
- *
- *   [
- *     'resource'        => 'tasks',
- *     'record_id'       => 17,
- *     'panels'          => ['admin', 'employee'],
- *     'preferred_panel' => 'employee',
- *     'tenant_slug'     => 'acme',
- *   ]
- *
- * Read by {@see \Devletes\NotificationsMax\Services\NotificationActionUrlResolver}
- * and the redirect controller.
+ * Persisted on the row as `data.action`; read by the redirect controller.
  */
 final class NotificationActionAddress
 {
@@ -45,20 +27,16 @@ final class NotificationActionAddress
             throw new InvalidArgumentException('NotificationActionAddress requires a non-empty resource slug.');
         }
 
+        // 0 is technically valid but signals an unset foreign key in
+        // practice — fail fast instead of rendering /resource/0.
         if ($recordId === '' || $recordId === 0) {
-            // 0 is a valid record id in theory but signals an unset value in
-            // practice — the dispatch site forgot to wire the foreign key.
-            // Reject early so the rendered notification doesn't link to
-            // /resource/0.
             throw new InvalidArgumentException('NotificationActionAddress requires a non-empty record id.');
         }
     }
 
     /**
-     * Hydrate from the array stored at `data.action` (or the dispatch
-     * context's `action` key). Returns null when the payload is missing
-     * required fields — callers tolerate a null address by falling back
-     * to a baked `data.url` / `data.action_url` for legacy rows.
+     * Hydrate from `data.action`. Returns null on malformed payloads so
+     * the renderer can fall back to legacy `data.url` / `data.action_url`.
      *
      * @param  array<string, mixed>|null  $payload
      */
