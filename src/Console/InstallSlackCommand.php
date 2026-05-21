@@ -138,7 +138,7 @@ class InstallSlackCommand extends Command
             return;
         }
 
-        $stub = __DIR__ . '/../../stubs/add_slack_user_id_to_users.php.stub';
+        $stub = __DIR__.'/../../stubs/add_slack_user_id_to_users.php.stub';
 
         if (! $this->files->exists($stub)) {
             $this->components->error("Migration stub missing: {$stub}");
@@ -312,8 +312,8 @@ class InstallSlackCommand extends Command
         $uncommented = (string) preg_replace("/^([ \t]*)\/\/[ \t]?/m", '$1', $rawBlock);
 
         return substr($contents, 0, $blockStart)
-            . $uncommented
-            . substr($contents, $blockStart + $consumed);
+            .$uncommented
+            .substr($contents, $blockStart + $consumed);
     }
 
     /**
@@ -375,9 +375,9 @@ class InstallSlackCommand extends Command
         // needed. The insertion's own lines each terminate with `\n`,
         // leaving the closing `]` right after $closeIndent.
         return substr($contents, 0, $closeLineStart)
-            . $insertion
-            . $closeIndent
-            . substr($contents, $closerOffset);
+            .$insertion
+            .$closeIndent
+            .substr($contents, $closerOffset);
     }
 
     /**
@@ -405,14 +405,14 @@ class InstallSlackCommand extends Command
 
         $indent = '        ';
         $insert = "{$indent}'slack' => [\n"
-            . "{$indent}    'label' => 'Slack',\n"
-            . "{$indent}    'physical' => ['slack'],\n"
-            . "{$indent}    'richness' => 'markdown',\n"
-            . "{$indent}    'route_via' => 'slack_user_id',\n"
-            . "{$indent}    'content_fields' => ['body' => 'text'],\n"
-            . "{$indent}],\n    ";
+            ."{$indent}    'label' => 'Slack',\n"
+            ."{$indent}    'physical' => ['slack'],\n"
+            ."{$indent}    'richness' => 'markdown',\n"
+            ."{$indent}    'route_via' => 'slack_user_id',\n"
+            ."{$indent}    'content_fields' => ['body' => 'text'],\n"
+            ."{$indent}],\n    ";
 
-        return substr($contents, 0, $closerPos) . $insert . substr($contents, $closerPos);
+        return substr($contents, 0, $closerPos).$insert.substr($contents, $closerPos);
     }
 
     /**
@@ -422,7 +422,7 @@ class InstallSlackCommand extends Command
      */
     protected function findArrayOpenerOffset(string $contents, string $key): ?int
     {
-        if (! preg_match("/'" . preg_quote($key, '/') . "'\s*=>\s*\[/", $contents, $match, PREG_OFFSET_CAPTURE)) {
+        if (! preg_match("/'".preg_quote($key, '/')."'\s*=>\s*\[/", $contents, $match, PREG_OFFSET_CAPTURE)) {
             return null;
         }
 
@@ -499,7 +499,7 @@ class InstallSlackCommand extends Command
                 $hadTrailingComma = str_ends_with($trimmed, ',');
                 $separator = $hadTrailingComma ? ' ' : ', ';
 
-                return $m[1] . $trimmed . $separator . "'slack'" . substr($items, strlen($trimmed)) . $m[3];
+                return $m[1].$trimmed.$separator."'slack'".substr($items, strlen($trimmed)).$m[3];
             },
             $contents,
             1,
@@ -509,13 +509,13 @@ class InstallSlackCommand extends Command
     protected function snippetForSlackChannelBlock(): string
     {
         return "Add this entry to <fg=cyan>config/notifications-max.php</> under `channels`:\n"
-            . "    'slack' => [\n"
-            . "        'label' => 'Slack',\n"
-            . "        'physical' => ['slack'],\n"
-            . "        'richness' => 'markdown',\n"
-            . "        'route_via' => 'slack_user_id',\n"
-            . "        'content_fields' => ['body' => 'text'],\n"
-            . '    ],';
+            ."    'slack' => [\n"
+            ."        'label' => 'Slack',\n"
+            ."        'physical' => ['slack'],\n"
+            ."        'richness' => 'markdown',\n"
+            ."        'route_via' => 'slack_user_id',\n"
+            ."        'content_fields' => ['body' => 'text'],\n"
+            .'    ],';
     }
 
     // ---------------------------------------------------------------------
@@ -542,11 +542,11 @@ class InstallSlackCommand extends Command
 
         // Insert before the final `];` of the returned array.
         $block = "    'slack' => [\n"
-            . "        'notifications' => [\n"
-            . "            'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),\n"
-            . "            'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),\n"
-            . "        ],\n"
-            . "    ],\n\n";
+            ."        'notifications' => [\n"
+            ."            'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),\n"
+            ."            'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),\n"
+            ."        ],\n"
+            ."    ],\n\n";
 
         $patched = preg_replace('/\n\];\s*$/', "\n\n{$block}];\n", $contents, 1);
 
@@ -577,11 +577,11 @@ class InstallSlackCommand extends Command
             $original = $contents;
 
             if (! preg_match('/^SLACK_BOT_USER_OAUTH_TOKEN=/m', $contents)) {
-                $contents = rtrim($contents, "\n") . "\n\nSLACK_BOT_USER_OAUTH_TOKEN=\n";
+                $contents = rtrim($contents, "\n")."\n\nSLACK_BOT_USER_OAUTH_TOKEN=\n";
             }
 
             if (! preg_match('/^NOTIFICATIONS_MAX_SLACK_AUTO_RESOLVE=/m', $contents)) {
-                $contents = rtrim($contents, "\n") . "\nNOTIFICATIONS_MAX_SLACK_AUTO_RESOLVE=true\n";
+                $contents = rtrim($contents, "\n")."\nNOTIFICATIONS_MAX_SLACK_AUTO_RESOLVE=true\n";
             }
 
             if ($contents === $original) {
@@ -631,13 +631,13 @@ class InstallSlackCommand extends Command
         }
 
         $this->nextSteps[] = "In <fg=cyan>{$file}</>, replace:\n"
-            . "    use Illuminate\\Notifications\\Notifiable;\n"
-            . "    ...\n"
-            . "    use Notifiable;\n"
-            . "with:\n"
-            . "    use Devletes\\NotificationsMax\\Concerns\\NotifiableViaMax;\n"
-            . "    ...\n"
-            . '    use NotifiableViaMax;';
+            ."    use Illuminate\\Notifications\\Notifiable;\n"
+            ."    ...\n"
+            ."    use Notifiable;\n"
+            ."with:\n"
+            ."    use Devletes\\NotificationsMax\\Concerns\\NotifiableViaMax;\n"
+            ."    ...\n"
+            .'    use NotifiableViaMax;';
     }
 
     // ---------------------------------------------------------------------
@@ -650,7 +650,7 @@ class InstallSlackCommand extends Command
         $token = env('SLACK_BOT_USER_OAUTH_TOKEN', '');
         if (! is_string($token) || trim($token) === '') {
             $this->nextSteps[] = 'Set <fg=cyan>SLACK_BOT_USER_OAUTH_TOKEN</> in your .env to a bot token with scopes: '
-                . '<fg=yellow>users:read.email</>, <fg=yellow>chat:write</>, <fg=yellow>im:write</>.';
+                .'<fg=yellow>users:read.email</>, <fg=yellow>chat:write</>, <fg=yellow>im:write</>.';
         }
 
         $this->nextSteps[] = 'Backfill Slack IDs for existing users: <fg=cyan>php artisan notifications-max:sync-slack-user-ids</>';

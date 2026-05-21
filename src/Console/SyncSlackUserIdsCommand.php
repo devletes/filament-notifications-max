@@ -7,6 +7,7 @@ namespace Devletes\NotificationsMax\Console;
 use Devletes\NotificationsMax\Services\SlackUserIdResolver;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Schema;
 use Throwable;
 
 /**
@@ -64,7 +65,6 @@ class SyncSlackUserIdsCommand extends Command
         }
 
         /** @var class-string<Model> $modelClass */
-
         $instance = new $modelClass;
         $table = $instance->getTable();
 
@@ -156,7 +156,7 @@ class SyncSlackUserIdsCommand extends Command
     protected function columnExists(string $table, string $column): bool
     {
         try {
-            return \Illuminate\Support\Facades\Schema::hasColumn($table, $column);
+            return Schema::hasColumn($table, $column);
         } catch (Throwable) {
             return false;
         }

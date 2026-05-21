@@ -79,7 +79,7 @@ class SeedContentCommand extends Command
             foreach ($types as $key => $type) {
                 $payload = $this->buildPayload($type);
 
-                /** @phpstan-var \Devletes\NotificationsMax\Models\NotificationTypeOverride|null $existing */
+                /** @phpstan-var NotificationTypeOverride|null $existing */
                 $existing = NotificationTypeOverride::query()
                     ->where('tenant_id', $tenantId)
                     ->where('type_key', $key)
