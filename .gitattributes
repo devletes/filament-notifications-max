@@ -1,0 +1,19 @@
+* text=auto eol=lf
+
+# Exclude development-only files from the Composer / GitHub release tarball.
+# Anything tagged `export-ignore` is omitted by `git archive`, which is what
+# Packagist and `composer create-project` use to assemble dist downloads.
+/.claude            export-ignore
+/.gitattributes     export-ignore
+/.gitignore         export-ignore
+/.github            export-ignore
+/.idea              export-ignore
+/.vscode            export-ignore
+/AGENTS.md          export-ignore
+/CLAUDE.md          export-ignore
+/composer.lock      export-ignore
+/phpunit.xml        export-ignore
+/phpunit.xml.dist   export-ignore
+/testbench.yaml     export-ignore
+/tests              export-ignore
+/workbench          export-ignore
