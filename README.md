@@ -14,6 +14,7 @@ Real-time, preference-driven notifications for Filament.
 - Built-in rate limiting to prevent notification storms
 - Multi-tenant aware (opt-in)
 - Domain-agnostic: a single `GenericNotification` class driven by a type-key registry
+- **`notifications-max:generate-types`** — one artisan command scans your code for dispatcher calls and auto-fills the type registry, so you don't hand-write every entry in `config/notifications.php`
 
 ## Architecture
 
@@ -25,6 +26,41 @@ The package is completely domain-agnostic. Everything domain-specific is supplie
 - `TenantResolver` — abstracts multi-tenant vs single-tenant context
 
 Sensible defaults ship; host apps bind their own implementations as needed.
+
+## Generating the type registry
+
+Rather than hand-writing every entry in `config/notifications.php`, run:
+
+```
+php artisan notifications-max:generate-types
+```
+
+It scans your app's PHP source for `NotificationDispatcher::send()` / `::schedule()` call sites and appends a config entry for each new type key it finds. Re-run as you add notifications — existing entries (with your hand-tuned titles, channels, target panels) are preserved.
+
+**Inferred for you:** the type key, a category (the prefix before the first `.`), a humanised label, the expected context-array shape, and a source-location comment. **You fill in:** titles, bodies, target panel, channel allowlists, and anything else specific to your domain.
+
+**Recognised receiver shapes** — the scanner finds dispatcher calls made through:
+
+- `app(...)` / `resolve(...)` / `App::make(...)`, either inline or via a local variable
+- Constructor-injected properties (`$this->dispatcher`), promoted or declared
+- Typed method parameters (`function handle(NotificationDispatcher $d)`)
+- Named arguments (`->send(typeKey: '...', context: [...])`)
+- Closures that `use ($dispatcher)` a tracked outer variable
+
+Calls with a non-literal type key (e.g. `"approval.{$action}"`) can't be statically resolved; the command lists each one's source location as a manual-registration TODO at the end of the run. Patterns that group N similar notifications under one dynamic dispatch are a legitimate design choice — register their keys in `config/notifications.php` by hand and the rest of the workflow works the same.
+
+**Useful flags:**
+
+| Flag | Effect |
+|---|---|
+| `--path=app/Services` | Scope the scan to a subdirectory (default: `app/`) |
+| `--type=foo.bar,baz.qux` | Generate only specific type keys |
+| `--exclude` | Treat `--type` as a denylist |
+| `--dry-run` | Report what would be added without writing |
+| `--print-only` | Print the snippet to stdout, never touch the config file |
+| `--force` | Rebuild existing entries from freshly-inferred defaults (default is merge-only) |
+
+The command requires `nikic/php-parser`, listed under `composer suggest` — install with `composer require --dev nikic/php-parser` the first time you reach for it.
 
 ## Audience resolvers
 

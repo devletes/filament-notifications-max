@@ -25,6 +25,7 @@
     },
     "require-dev": {
         "laravel/pint": "^1.18",
+        "nikic/php-parser": "^5.0",
         "orchestra/testbench": "^9.0|^10.0",
         "pestphp/pest": "^3.8",
         "pestphp/pest-plugin-laravel": "^3.0"
@@ -33,7 +34,8 @@
         "laravel-notification-channels/twilio": "Required to deliver SMS via Twilio (enable channel_handlers.twilio).",
         "laravel/vonage-notification-channel": "Required to deliver SMS via Vonage (enable channel_handlers.vonage).",
         "laravel/slack-notification-channel": "Required to deliver Slack messages (enable channel_handlers.slack).",
-        "laravel-notification-channels/discord": "Required to deliver Discord messages (enable channel_handlers.discord)."
+        "laravel-notification-channels/discord": "Required to deliver Discord messages (enable channel_handlers.discord).",
+        "nikic/php-parser": "Required by `notifications-max:generate-types` to scan host code for dispatcher call sites and auto-fill the type registry."
     },
     "autoload": {
         "psr-4": {

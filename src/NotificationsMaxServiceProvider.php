@@ -50,6 +50,7 @@ class NotificationsMaxServiceProvider extends PackageServiceProvider
                 \Devletes\NotificationsMax\Console\SeedContentCommand::class,
                 \Devletes\NotificationsMax\Console\InstallSlackCommand::class,
                 \Devletes\NotificationsMax\Console\SyncSlackUserIdsCommand::class,
+                \Devletes\NotificationsMax\Console\GenerateTypesCommand::class,
             ]);
     }
 
