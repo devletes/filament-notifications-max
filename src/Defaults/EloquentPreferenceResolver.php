@@ -68,6 +68,16 @@ class EloquentPreferenceResolver implements PreferenceResolver
         $tenantId = $this->resolveTenantId($user);
         $allowed = $this->contentResolver->allowedChannelsFor($typeKey, $tenantId);
 
+        // Admin-controlled types (e.g. broadcast.admin_custom) bypass
+        // per-user preferences. The sender picks channels at dispatch
+        // time via context['channels'], which GenericNotification::via()
+        // intersects with the set we return here. Returning the full
+        // admin allowance — not the user-pref-filtered subset — means
+        // the sender's pick is what actually narrows delivery.
+        if ($type->adminControlled) {
+            return $this->expandLogicalChannels($allowed);
+        }
+
         if ($allowed === []) {
             // Admin disabled all channels for this type. Nothing fires
             // (mandatory short-circuited above; this can only happen for

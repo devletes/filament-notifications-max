@@ -114,6 +114,17 @@ final class NotificationType
         /** @var array<int, string> */
         public readonly array $allowedChannels,
         public readonly bool $mandatory,
+        /**
+         * Sender-driven types. The dispatcher honours admin-supplied
+         * `context.channels` (and/or the type's `allowed_channels` when no
+         * per-message list is supplied) and bypasses per-user preferences.
+         * The preferences UI hides these types entirely — users can't
+         * meaningfully toggle channels that the sender re-picks on every
+         * dispatch. Distinct from {@see $mandatory}: mandatory types always
+         * fire on dispatch; admin_controlled types may not even be
+         * dispatched (the admin decides).
+         */
+        public readonly bool $adminControlled,
         /** @var array{max:int, per_minutes:int}|null */
         public readonly ?array $rateLimit,
         /**
@@ -160,6 +171,7 @@ final class NotificationType
             defaultChannels: $config['default_channels'] ?? $defaults['default_channels'] ?? ['push'],
             allowedChannels: $config['allowed_channels'] ?? $defaults['allowed_channels'] ?? ['push', 'email'],
             mandatory: (bool) ($config['mandatory'] ?? false),
+            adminControlled: (bool) ($config['admin_controlled'] ?? false),
             rateLimit: $config['rate_limit'] ?? null,
             notificationClass: $config['notification_class'] ?? null,
         );
@@ -202,7 +214,7 @@ final class NotificationType
      */
     public function channelIsOptional(string $channel): bool
     {
-        if ($this->mandatory) {
+        if ($this->mandatory || $this->adminControlled) {
             return false;
         }
 
