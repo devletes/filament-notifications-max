@@ -183,11 +183,8 @@ class NotificationsMaxServiceProvider extends PackageServiceProvider
             'default_channels' => ['push'],
             'allowed_channels' => ['push', 'email'],
             'mandatory' => false,
-            // Admin picks channels per-broadcast at composer time; per-user
-            // preferences would be misleading (toggles that don't gate
-            // anything, since the sender re-picks every time). Bypasses
-            // user prefs in the resolver and hides the row from the user
-            // prefs UI.
+            // Channels are picked per-broadcast on the composer; user prefs
+            // would be misleading, so bypass them and hide from the prefs UI.
             'admin_controlled' => true,
             // action_url + action_label flow in via context on dispatch
             // when the admin set them on the broadcast; no static resource

@@ -115,14 +115,9 @@ final class NotificationType
         public readonly array $allowedChannels,
         public readonly bool $mandatory,
         /**
-         * Sender-driven types. The dispatcher honours admin-supplied
-         * `context.channels` (and/or the type's `allowed_channels` when no
-         * per-message list is supplied) and bypasses per-user preferences.
-         * The preferences UI hides these types entirely — users can't
-         * meaningfully toggle channels that the sender re-picks on every
-         * dispatch. Distinct from {@see $mandatory}: mandatory types always
-         * fire on dispatch; admin_controlled types may not even be
-         * dispatched (the admin decides).
+         * Sender-driven type. Bypasses user prefs (channels picked per
+         * dispatch via context); hidden from the preferences UI. Unlike
+         * {@see $mandatory}, dispatch is still up to the caller.
          */
         public readonly bool $adminControlled,
         /** @var array{max:int, per_minutes:int}|null */

@@ -216,10 +216,8 @@ class NotificationPreferences extends Page implements HasForms
      */
     protected function typesForUser(NotificationTypeRegistry $registry, ?Authenticatable $user): array
     {
-        // Admin-controlled types (broadcasts, etc.) are sender-driven and
-        // bypass user prefs entirely. Hiding them from this page keeps the
-        // UI honest — users would otherwise see toggles that don't gate
-        // anything.
+        // Admin-controlled types pick channels per dispatch — toggles here
+        // wouldn't gate anything.
         return array_filter(
             $registry->allForPanels($this->accessiblePanelIds($user)),
             fn (NotificationType $type): bool => ! $type->adminControlled,

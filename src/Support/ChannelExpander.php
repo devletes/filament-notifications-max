@@ -5,17 +5,8 @@ declare(strict_types=1);
 namespace Devletes\NotificationsMax\Support;
 
 /**
- * Expand logical channel names (push, email, slack, …) into the physical
- * Laravel notification channels (database, broadcast, mail, …) declared by
- * each channel's `physical` config key.
- *
- * Used at two call sites that both need to bridge the registry's logical
- * channel vocabulary to Laravel's physical via() list:
- *   - {@see \Devletes\NotificationsMax\Defaults\EloquentPreferenceResolver}
- *     when materialising the user's resolved channels.
- *   - {@see \Devletes\NotificationsMax\Notifications\GenericNotification::via()}
- *     when narrowing the resolved set by a per-message `context.channels`
- *     override (e.g. an admin's broadcast composer selecting Slack only).
+ * Expand logical channel names (push, email, slack, …) to the physical
+ * Laravel channels declared by each channel's `physical` config key.
  */
 final class ChannelExpander
 {
@@ -38,8 +29,7 @@ final class ChannelExpander
                 continue;
             }
 
-            // No registry entry — caller is using a physical channel name
-            // directly, or a custom channel without a registry definition.
+            // Unmapped name passes through as a physical channel.
             $physical[] = $channel;
         }
 

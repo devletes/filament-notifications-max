@@ -72,12 +72,8 @@ class GenericNotification extends Notification
         $channels = app(PreferenceResolver::class)
             ->channelsFor($notifiable, $this->typeKey);
 
-        // Per-message channel constraint: when the caller stamps a `channels`
-        // list into the context (e.g. an admin's per-broadcast Slack-only
-        // selection on the composer form), narrow the resolved set to the
-        // expanded physical equivalents. Applies *after* mandatory/admin/
-        // user-pref resolution — can only restrict, never re-enable a
-        // channel the resolver excluded.
+        // `context.channels` narrows the resolved set; it can restrict but
+        // never re-enable a channel the resolver excluded.
         $override = $this->context['channels'] ?? null;
 
         if (is_array($override) && $override !== []) {

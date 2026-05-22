@@ -88,9 +88,6 @@ class ViewBroadcastNotification extends ViewRecord
                         'action_label' => $broadcast->action_label,
                     ];
 
-                    // Honour the composer's channel selection on test sends
-                    // too — admin testing "Slack only" should see Slack only,
-                    // not the full default set for broadcast.admin_custom.
                     if (! empty($broadcast->channels)) {
                         $context['channels'] = $broadcast->channels;
                     }

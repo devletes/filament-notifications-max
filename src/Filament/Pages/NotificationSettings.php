@@ -276,11 +276,9 @@ class NotificationSettings extends Page implements HasForms
             ? $registry->all()
             : $registry->allForPanels([$panelId]);
 
-        // Admin-controlled types are sender-driven (channels picked per
-        // dispatch on the composer form); there's no meaningful tenant-
-        // level allowance to set here. Hiding them mirrors the user
-        // preferences page filter and prevents stale `notification_type_overrides`
-        // rows from accidentally narrowing what shows up on the composer.
+        // Admin-controlled types pick channels per dispatch — a tenant-
+        // level allowance here adds no meaningful constraint and risks a
+        // stale override narrowing the composer.
         return array_filter(
             $types,
             fn (NotificationType $type): bool => ! $type->adminControlled,
