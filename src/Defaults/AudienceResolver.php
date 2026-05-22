@@ -8,6 +8,7 @@ use Devletes\NotificationsMax\Contracts\BroadcastAudienceResolver;
 use Devletes\NotificationsMax\Contracts\TenantResolver;
 use Filament\Forms\Components\Select;
 use Filament\Schemas\Components\Component;
+use Filament\Schemas\Components\Section;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Schema;
@@ -34,33 +35,37 @@ class AudienceResolver implements BroadcastAudienceResolver
 
     public function formComponent(string $name): Component
     {
-        return Select::make($name . '.user_ids')
-            ->label('Recipients')
-            ->helperText('Broadcast will reach every selected user.')
-            ->multiple()
-            ->searchable()
-            ->getSearchResultsUsing(function (string $search): array {
-                return $this->baseQuery($this->tenantResolver->currentId())
-                    ->where(fn (Builder $q) => $this->applySearch($q, $search))
-                    ->limit(50)
-                    ->get()
-                    ->mapWithKeys(fn (Model $u): array => [$u->getKey() => $this->labelFor($u)])
-                    ->all();
-            })
-            ->getOptionLabelUsing(function ($value): ?string {
-                $user = $this->userClass()::query()->find($value);
+        return Section::make('Audience')
+            ->description('Who receives this broadcast. Recipients are computed at send time — matching users added after scheduling will still receive the broadcast.')
+            ->schema([
+                Select::make($name . '.user_ids')
+                    ->label('Recipients')
+                    ->helperText('Broadcast will reach every selected user.')
+                    ->multiple()
+                    ->searchable()
+                    ->getSearchResultsUsing(function (string $search): array {
+                        return $this->baseQuery($this->tenantResolver->currentId())
+                            ->where(fn (Builder $q) => $this->applySearch($q, $search))
+                            ->limit(50)
+                            ->get()
+                            ->mapWithKeys(fn (Model $u): array => [$u->getKey() => $this->labelFor($u)])
+                            ->all();
+                    })
+                    ->getOptionLabelUsing(function ($value): ?string {
+                        $user = $this->userClass()::query()->find($value);
 
-                return $user ? $this->labelFor($user) : null;
-            })
-            ->getOptionLabelsUsing(function (array $values): array {
-                return $this->userClass()::query()
-                    ->whereIn('id', $values)
-                    ->get()
-                    ->mapWithKeys(fn (Model $u): array => [$u->getKey() => $this->labelFor($u)])
-                    ->all();
-            })
-            ->required()
-            ->minItems(1);
+                        return $user ? $this->labelFor($user) : null;
+                    })
+                    ->getOptionLabelsUsing(function (array $values): array {
+                        return $this->userClass()::query()
+                            ->whereIn('id', $values)
+                            ->get()
+                            ->mapWithKeys(fn (Model $u): array => [$u->getKey() => $this->labelFor($u)])
+                            ->all();
+                    })
+                    ->required()
+                    ->minItems(1),
+            ]);
     }
 
     public function matchingUsersQuery(array $audience, ?int $tenantId): Builder

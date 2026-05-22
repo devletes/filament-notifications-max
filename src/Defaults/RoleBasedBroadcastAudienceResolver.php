@@ -7,6 +7,7 @@ namespace Devletes\NotificationsMax\Defaults;
 use Devletes\NotificationsMax\Contracts\BroadcastAudienceResolver;
 use Filament\Forms\Components\Select;
 use Filament\Schemas\Components\Component;
+use Filament\Schemas\Components\Section;
 use Illuminate\Database\Eloquent\Builder;
 use Spatie\Permission\Models\Role;
 
@@ -33,15 +34,19 @@ class RoleBasedBroadcastAudienceResolver implements BroadcastAudienceResolver
 {
     public function formComponent(string $name): Component
     {
-        return Select::make($name . '.role_ids')
-            ->label('Recipients (roles)')
-            ->helperText('Broadcast will reach every user assigned to any of the selected roles.')
-            ->multiple()
-            ->searchable()
-            ->preload()
-            ->options(fn (): array => Role::query()->pluck('name', 'id')->all())
-            ->required()
-            ->minItems(1);
+        return Section::make('Audience')
+            ->description('Who receives this broadcast. Recipients are computed at send time — matching users added after scheduling will still receive the broadcast.')
+            ->schema([
+                Select::make($name . '.role_ids')
+                    ->label('Recipients (roles)')
+                    ->helperText('Broadcast will reach every user assigned to any of the selected roles.')
+                    ->multiple()
+                    ->searchable()
+                    ->preload()
+                    ->options(fn (): array => Role::query()->pluck('name', 'id')->all())
+                    ->required()
+                    ->minItems(1),
+            ]);
     }
 
     public function matchingUsersQuery(array $audience, ?int $tenantId): Builder

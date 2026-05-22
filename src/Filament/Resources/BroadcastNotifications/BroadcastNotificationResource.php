@@ -148,15 +148,12 @@ class BroadcastNotificationResource extends Resource
                                 ->minDate(now()),
                         ]),
 
-                    // Wrap: 3/4 width. Audience picker occupies main lane
-                    // below the Message section; right-hand lane stays empty
-                    // on this row.
-                    Section::make('Audience')
-                        ->columnSpan(3)
-                        ->description('Who receives this broadcast. Recipients are computed at send time — matching users added after scheduling will still receive the broadcast.')
-                        ->schema([
-                            $audience->formComponent('audience'),
-                        ]),
+                    // Wrap: audience picker occupies the 3/4 main lane below
+                    // the Message section. Resolver owns its own framing —
+                    // host bindings can return a Section, a Repeater, or a
+                    // bare field.
+                    $audience->formComponent('audience')
+                        ->columnSpan(3),
                 ]),
         ]);
     }
