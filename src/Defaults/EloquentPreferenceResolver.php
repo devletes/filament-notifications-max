@@ -8,6 +8,7 @@ use Devletes\NotificationsMax\Contracts\PreferenceResolver;
 use Devletes\NotificationsMax\Contracts\TenantResolver;
 use Devletes\NotificationsMax\Registry\NotificationTypeRegistry;
 use Devletes\NotificationsMax\Services\NotificationContentResolver;
+use Devletes\NotificationsMax\Support\ChannelExpander;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -100,36 +101,12 @@ class EloquentPreferenceResolver implements PreferenceResolver
     }
 
     /**
-     * Expand logical channel names (push, email, …) into the physical Laravel
-     * notification channels (database, broadcast, mail) declared by each
-     * channel's `physical` config key. Unrecognised names pass through
-     * unchanged so host apps can use physical channels directly if they
-     * bypass the registry for a specific type.
-     *
      * @param  array<int, string>  $logical
      * @return array<int, string>
      */
     protected function expandLogicalChannels(array $logical): array
     {
-        $channels = config('notifications-max.channels', []);
-
-        $physical = [];
-
-        foreach ($logical as $channel) {
-            $def = $channels[$channel] ?? null;
-
-            if (is_array($def) && isset($def['physical']) && is_array($def['physical'])) {
-                $physical = array_merge($physical, $def['physical']);
-
-                continue;
-            }
-
-            // No registry entry — caller is using a physical channel name
-            // directly, or a custom channel without a registry definition.
-            $physical[] = $channel;
-        }
-
-        return array_values(array_unique($physical));
+        return ChannelExpander::toPhysical($logical);
     }
 
     protected function resolveTenantId(Authenticatable $user): ?int

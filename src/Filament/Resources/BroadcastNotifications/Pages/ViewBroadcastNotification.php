@@ -81,14 +81,23 @@ class ViewBroadcastNotification extends ViewRecord
                         return;
                     }
 
+                    $context = [
+                        'subject' => $broadcast->subject,
+                        'body' => $broadcast->body,
+                        'action_url' => $broadcast->action_url,
+                        'action_label' => $broadcast->action_label,
+                    ];
+
+                    // Honour the composer's channel selection on test sends
+                    // too — admin testing "Slack only" should see Slack only,
+                    // not the full default set for broadcast.admin_custom.
+                    if (! empty($broadcast->channels)) {
+                        $context['channels'] = $broadcast->channels;
+                    }
+
                     app(NotificationDispatcher::class)->send(
                         'broadcast.admin_custom',
-                        [
-                            'subject' => $broadcast->subject,
-                            'body' => $broadcast->body,
-                            'action_url' => $broadcast->action_url,
-                            'action_label' => $broadcast->action_label,
-                        ],
+                        $context,
                         $user,
                     );
 

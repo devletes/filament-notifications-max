@@ -178,6 +178,13 @@ class SendBroadcastJob implements ShouldQueue
             $context['action_label'] = $broadcast->action_label;
         }
 
+        // Per-broadcast channel selection from the composer form. GenericNotification::via()
+        // intersects this with the resolved channels so the admin's pick narrows delivery
+        // without re-enabling anything the type/user prefs already excluded.
+        if (! empty($broadcast->channels)) {
+            $context['channels'] = $broadcast->channels;
+        }
+
         return $context;
     }
 }
