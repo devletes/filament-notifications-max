@@ -20,6 +20,10 @@ use Filament\Facades\Filament;
  */
 class SubdomainActionUrlBuilder implements ActionUrlBuilder
 {
+    public function __construct(
+        private readonly PathActionUrlBuilder $pathFallback,
+    ) {}
+
     public function build(
         string $panelId,
         string $resourceSlug,
@@ -31,7 +35,7 @@ class SubdomainActionUrlBuilder implements ActionUrlBuilder
         if ($tenantSlug === null || $tenantSlug === '') {
             // Without a tenant we can't construct a subdomain — fall back
             // to the path builder so the URL is still usable.
-            return app(PathActionUrlBuilder::class)->build($panelId, $resourceSlug, $recordId, $context);
+            return $this->pathFallback->build($panelId, $resourceSlug, $recordId, $context);
         }
 
         $appUrl = config('app.url') ?: 'http://localhost';

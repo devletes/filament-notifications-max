@@ -2,12 +2,13 @@
 
 declare(strict_types=1);
 
+use Devletes\NotificationsMax\Defaults\PathActionUrlBuilder;
 use Devletes\NotificationsMax\Defaults\SubdomainActionUrlBuilder;
 
 beforeEach(function (): void {
     config(['app.url' => 'https://example.test']);
 
-    $this->builder = new SubdomainActionUrlBuilder;
+    $this->builder = new SubdomainActionUrlBuilder(new PathActionUrlBuilder);
 });
 
 it('builds a subdomain-style URL when tenant_slug is in context', function (): void {
