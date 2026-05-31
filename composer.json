@@ -28,7 +28,8 @@
         "nikic/php-parser": "^5.0",
         "orchestra/testbench": "^9.0|^10.0",
         "pestphp/pest": "^3.8",
-        "pestphp/pest-plugin-laravel": "^3.0"
+        "pestphp/pest-plugin-laravel": "^3.0",
+        "laravel/slack-notification-channel": "^3.8"
     },
     "suggest": {
         "laravel-notification-channels/twilio": "Required to deliver SMS via Twilio (enable channel_handlers.twilio).",

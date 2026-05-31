@@ -409,7 +409,8 @@ class InstallSlackCommand extends Command
             ."{$indent}    'physical' => ['slack'],\n"
             ."{$indent}    'richness' => 'markdown',\n"
             ."{$indent}    'route_via' => 'slack_user_id',\n"
-            ."{$indent}    'content_fields' => ['body' => 'text'],\n"
+            ."{$indent}    'content_fields' => ['title' => 'string', 'body' => 'text'],\n"
+            ."{$indent}    'format' => 'link', // 'link' or 'blocks' (Block Kit) — see SlackChannelHandler\n"
             ."{$indent}],\n    ";
 
         return substr($contents, 0, $closerPos).$insert.substr($contents, $closerPos);
@@ -514,7 +515,8 @@ class InstallSlackCommand extends Command
             ."        'physical' => ['slack'],\n"
             ."        'richness' => 'markdown',\n"
             ."        'route_via' => 'slack_user_id',\n"
-            ."        'content_fields' => ['body' => 'text'],\n"
+            ."        'content_fields' => ['title' => 'string', 'body' => 'text'],\n"
+            ."        'format' => 'link', // 'link' or 'blocks' (Block Kit) — see SlackChannelHandler\n"
             .'    ],';
     }
 

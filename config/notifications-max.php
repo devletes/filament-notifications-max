@@ -173,7 +173,15 @@ return [
         //     'physical' => ['slack'],
         //     'richness' => 'markdown',
         //     'route_via' => 'slack_user_id',
-        //     'content_fields' => ['body' => 'text'],
+        //     'content_fields' => ['title' => 'string', 'body' => 'text'],
+        //     // How the message is laid out (see SlackChannelHandler):
+        //     //   'link'   — title + body + a trailing `<url|View>` link.
+        //     //              Plain, works everywhere, no Slack-app setup. Default.
+        //     //   'blocks' — Block Kit: divider, header (title), section (body)
+        //     //              with a primary "View" button. Richer; the URL button
+        //     //              fires a block_actions payload, so the Slack app should
+        //     //              have Interactivity configured for it to be glitch-free.
+        //     'format' => 'link',
         // ],
 
         // 'discord' => [
