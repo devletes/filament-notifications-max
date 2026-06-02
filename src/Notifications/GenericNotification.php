@@ -7,6 +7,7 @@ namespace Devletes\NotificationsMax\Notifications;
 use Devletes\NotificationsMax\Contracts\ActionUrlBuilder;
 use Devletes\NotificationsMax\Contracts\ChannelHandler;
 use Devletes\NotificationsMax\Contracts\PreferenceResolver;
+use Devletes\NotificationsMax\Contracts\ProvidesActionBaseUrl;
 use Devletes\NotificationsMax\Registry\NotificationType;
 use Devletes\NotificationsMax\Registry\NotificationTypeRegistry;
 use Devletes\NotificationsMax\Support\ChannelExpander;
@@ -510,6 +511,10 @@ class GenericNotification extends Notification
      * Route URL keyed by `$this->id`. Laravel's NotificationSender stamps
      * the uuid before each channel's send(), so the URL is stable even
      * though the row hasn't been inserted yet.
+     *
+     * When the bound builder implements {@see ProvidesActionBaseUrl} the hop
+     * is pinned to that tenant host (see the interface for why this matters
+     * for off-request sends like queued mail).
      */
     protected function redirectUrlFor(NotificationActionAddress $address): ?string
     {
@@ -524,6 +529,15 @@ class GenericNotification extends Notification
         }
 
         try {
+            $builder = app(ActionUrlBuilder::class);
+            $base = $builder instanceof ProvidesActionBaseUrl
+                ? $builder->baseUrl($this->context)
+                : null;
+
+            if ($base !== null) {
+                return $base.route('notifications-max.go', ['notification' => $notificationId], absolute: false);
+            }
+
             return route('notifications-max.go', ['notification' => $notificationId]);
         } catch (Throwable) {
             return null;

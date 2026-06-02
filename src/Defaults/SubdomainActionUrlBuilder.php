@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Devletes\NotificationsMax\Defaults;
 
 use Devletes\NotificationsMax\Contracts\ActionUrlBuilder;
+use Devletes\NotificationsMax\Contracts\ProvidesActionBaseUrl;
 use Filament\Facades\Filament;
 
 /**
@@ -18,7 +19,7 @@ use Filament\Facades\Filament;
  * to the path builder output if no tenant_slug is available (e.g. a console
  * notification with no tenant context).
  */
-class SubdomainActionUrlBuilder implements ActionUrlBuilder
+class SubdomainActionUrlBuilder implements ActionUrlBuilder, ProvidesActionBaseUrl
 {
     public function __construct(
         private readonly PathActionUrlBuilder $pathFallback,
@@ -30,17 +31,13 @@ class SubdomainActionUrlBuilder implements ActionUrlBuilder
         int|string $recordId,
         array $context = [],
     ): string {
-        $tenantSlug = $context['tenant_slug'] ?? null;
+        $base = $this->baseUrl($context);
 
-        if ($tenantSlug === null || $tenantSlug === '') {
+        if ($base === null) {
             // Without a tenant we can't construct a subdomain — fall back
             // to the path builder so the URL is still usable.
             return $this->pathFallback->build($panelId, $resourceSlug, $recordId, $context);
         }
-
-        $appUrl = config('app.url') ?: 'http://localhost';
-        $scheme = parse_url($appUrl, PHP_URL_SCHEME) ?: 'https';
-        $domain = config('app.domain') ?: parse_url($appUrl, PHP_URL_HOST) ?: 'localhost';
 
         // Fall back to the panel id as the path segment when no panel is
         // registered with that id (typical in tests, and harmless in
@@ -54,8 +51,21 @@ class SubdomainActionUrlBuilder implements ActionUrlBuilder
             '/',
         );
 
-        $base = "{$scheme}://{$tenantSlug}.{$domain}";
-
         return $path === '' ? $base : "{$base}/{$path}";
+    }
+
+    public function baseUrl(array $context = []): ?string
+    {
+        $tenantSlug = $context['tenant_slug'] ?? null;
+
+        if (! is_string($tenantSlug) || $tenantSlug === '') {
+            return null;
+        }
+
+        $appUrl = config('app.url') ?: 'http://localhost';
+        $scheme = parse_url($appUrl, PHP_URL_SCHEME) ?: 'https';
+        $domain = config('app.domain') ?: parse_url($appUrl, PHP_URL_HOST) ?: 'localhost';
+
+        return "{$scheme}://{$tenantSlug}.{$domain}";
     }
 }

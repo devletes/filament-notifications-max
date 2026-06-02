@@ -39,3 +39,23 @@ it('falls back when tenant_slug is empty string', function (): void {
 
     expect($url)->toBe('https://example.test/admin/requests/42');
 });
+
+it('exposes the tenant host (no path) via baseUrl()', function (): void {
+    expect($this->builder->baseUrl(['tenant_slug' => 'acme']))
+        ->toBe('https://acme.example.test');
+});
+
+it('baseUrl() honours app.domain when set independently of app.url', function (): void {
+    config([
+        'app.url' => 'https://app.example.test',
+        'app.domain' => 'tenants.example.test',
+    ]);
+
+    expect($this->builder->baseUrl(['tenant_slug' => 'acme']))
+        ->toBe('https://acme.tenants.example.test');
+});
+
+it('baseUrl() returns null when tenant_slug is missing or empty', function (): void {
+    expect($this->builder->baseUrl([]))->toBeNull();
+    expect($this->builder->baseUrl(['tenant_slug' => '']))->toBeNull();
+});

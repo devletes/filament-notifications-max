@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+use Devletes\NotificationsMax\Contracts\ActionUrlBuilder;
+use Devletes\NotificationsMax\Defaults\PathActionUrlBuilder;
+use Devletes\NotificationsMax\Defaults\SubdomainActionUrlBuilder;
 use Devletes\NotificationsMax\Notifications\GenericNotification;
 use Devletes\NotificationsMax\Registry\NotificationTypeRegistry;
 use Devletes\NotificationsMax\Support\NotificationActionAddress;
@@ -143,6 +146,39 @@ it('buildLegacyActionUrl returns the redirect-route URL when an address exists',
     $url = $n->buildLegacyActionUrl($n->resolveType());
 
     expect($url)->toBe("https://app.example.test/notifications-max/go/{$n->id}");
+});
+
+it('pins the redirect-route URL to the tenant subdomain when the builder is subdomain-aware', function (): void {
+    // Mirror a subdomain-tenancy host: bind the subdomain builder (which
+    // implements ProvidesActionBaseUrl). The hop must then carry the tenant
+    // host rather than the bare APP_URL — the whole point for queued mail,
+    // where route() has no incoming host to borrow.
+    app()->bind(
+        ActionUrlBuilder::class,
+        fn () => new SubdomainActionUrlBuilder(new PathActionUrlBuilder),
+    );
+
+    $n = new GenericNotification('tasks.assigned', [
+        'task_id' => 42,
+        'tenant_slug' => 'acme',
+    ]);
+    $n->id = (string) Str::uuid();
+
+    expect($n->buildLegacyActionUrl($n->resolveType()))
+        ->toBe("https://acme.app.example.test/notifications-max/go/{$n->id}");
+});
+
+it('leaves the redirect-route URL on the default host when no tenant_slug is present', function (): void {
+    app()->bind(
+        ActionUrlBuilder::class,
+        fn () => new SubdomainActionUrlBuilder(new PathActionUrlBuilder),
+    );
+
+    $n = new GenericNotification('tasks.assigned', ['task_id' => 42]);
+    $n->id = (string) Str::uuid();
+
+    expect($n->buildLegacyActionUrl($n->resolveType()))
+        ->toBe("https://app.example.test/notifications-max/go/{$n->id}");
 });
 
 it('buildLegacyActionUrl falls back to direct URL when the redirect route is unregistered', function (): void {
