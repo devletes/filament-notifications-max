@@ -118,6 +118,48 @@ it('returns 404 for a non-existent notification id', function (): void {
         ->assertNotFound();
 });
 
+it('marks the notification read as the click passes through', function (): void {
+    $user = User::query()->create(['name' => 'Reader', 'email' => 'reader@example.test']);
+
+    $row = makeNotificationRow($user, [
+        'action' => [
+            'resource' => 'tasks',
+            'record_id' => 17,
+            'panels' => ['admin', 'employee'],
+            'preferred_panel' => 'employee',
+        ],
+    ]);
+
+    expect($row->read_at)->toBeNull();
+
+    $this->actingAs($user)
+        ->get("/notifications-max/go/{$row->id}")
+        ->assertRedirect('https://app.example.test/employee/tasks/17');
+
+    expect($row->fresh()->read_at)->not->toBeNull();
+});
+
+it('leaves read state untouched when redirect_route.mark_read is disabled', function (): void {
+    config(['notifications-max.redirect_route.mark_read' => false]);
+
+    $user = User::query()->create(['name' => 'Skipper', 'email' => 'skipper@example.test']);
+
+    $row = makeNotificationRow($user, [
+        'action' => [
+            'resource' => 'tasks',
+            'record_id' => 21,
+            'panels' => ['employee'],
+            'preferred_panel' => 'employee',
+        ],
+    ]);
+
+    $this->actingAs($user)
+        ->get("/notifications-max/go/{$row->id}")
+        ->assertRedirect('https://app.example.test/employee/tasks/21');
+
+    expect($row->fresh()->read_at)->toBeNull();
+});
+
 it('registers the redirect route when redirect_route.enabled is true', function (): void {
     expect(Route::has('notifications-max.go'))->toBeTrue();
 });

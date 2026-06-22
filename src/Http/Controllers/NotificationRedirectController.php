@@ -18,6 +18,11 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  * Resolves a notification's action URL at click time and 302s to the right
  * panel. Stranger's id returns 404 (not 403) to avoid leaking existence.
  * Falls back to baked `data.url` / `data.action_url` for legacy rows.
+ *
+ * Clicking the link is treated as acknowledgement: the row is marked read
+ * before the redirect (so a Slack/email click clears the in-app bell), gated
+ * by `notifications-max.redirect_route.mark_read`. `markAsRead()` is a no-op
+ * on an already-read row, so re-clicks don't churn the timestamp.
  */
 class NotificationRedirectController
 {
@@ -37,6 +42,10 @@ class NotificationRedirectController
 
         if ($row === null) {
             throw new NotFoundHttpException();
+        }
+
+        if (config('notifications-max.redirect_route.mark_read', true)) {
+            $row->markAsRead();
         }
 
         $url = $this->resolveUrl($row, $resolver, $request, $user)

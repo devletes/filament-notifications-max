@@ -729,15 +729,21 @@ return [
     | notification center set `?from=` from the current panel; mail clicks
     | fall through to the type's preferred panel.
     |
-    | enabled  Turn off on single-panel hosts to save one HTTP hop per click.
-    | prefix   Must not collide with any panel's slugs — relevant when a
-    |          panel is mounted at the app root.
+    | enabled    Turn off on single-panel hosts to save one HTTP hop per click.
+    | prefix     Must not collide with any panel's slugs — relevant when a
+    |            panel is mounted at the app root.
+    | mark_read  Mark the notification read as the click passes through, so a
+    |            Slack/email click clears the in-app bell badge. The bell and
+    |            notification center already mark-on-click client-side; this
+    |            extends the same acknowledgement to off-app channels. Turn
+    |            off to keep external clicks from touching read state.
     |
     */
 
     'redirect_route' => [
         'enabled' => true,
         'prefix' => 'notifications-max',
+        'mark_read' => true,
     ],
 
 ];
