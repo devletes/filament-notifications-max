@@ -164,6 +164,66 @@ it('users without FilamentUser contract are allowed everywhere', function (): vo
     expect($url)->toBe('https://app.example.test/employee/tasks/17');
 });
 
+it('resolves the table-action query form when the address carries one', function (): void {
+    $address = new NotificationActionAddress(
+        resource: 'tasks',
+        recordId: 17,
+        panels: ['admin', 'employee'],
+        preferredPanel: 'employee',
+        tableAction: 'view',
+    );
+
+    expect($this->resolver->resolve($address))
+        ->toBe('https://app.example.test/employee/tasks?tableAction=view&tableActionRecord=17');
+});
+
+it('forwards table_action into the builder context alongside tenant_slug', function (): void {
+    $capturing = new class implements \Devletes\NotificationsMax\Contracts\ActionUrlBuilder
+    {
+        /** @var array<string, mixed> */
+        public array $context = [];
+
+        public function build(
+            string $panelId,
+            string $resourceSlug,
+            int|string $recordId,
+            array $context = [],
+        ): string {
+            $this->context = $context;
+
+            return 'https://captured.example.test';
+        }
+    };
+
+    $resolver = new NotificationActionUrlResolver($capturing);
+
+    $resolver->resolve(new NotificationActionAddress(
+        resource: 'tasks',
+        recordId: 17,
+        panels: ['employee'],
+        preferredPanel: 'employee',
+        tenantSlug: 'acme',
+        tableAction: 'view',
+    ));
+
+    expect($capturing->context)->toBe([
+        'tenant_slug' => 'acme',
+        'table_action' => 'view',
+    ]);
+
+    // Null table action → the key is filtered out entirely, matching the
+    // pre-feature context shape third-party builders already receive.
+    $resolver->resolve(new NotificationActionAddress(
+        resource: 'tasks',
+        recordId: 17,
+        panels: ['employee'],
+        preferredPanel: 'employee',
+        tenantSlug: 'acme',
+    ));
+
+    expect($capturing->context)->toBe(['tenant_slug' => 'acme']);
+});
+
 it('exposes resolvePanel for callers that need the chosen panel id', function (): void {
     $user = new RestrictedUser();
     $user->allowedPanels = ['admin'];

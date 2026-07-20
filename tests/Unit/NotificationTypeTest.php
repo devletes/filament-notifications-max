@@ -71,6 +71,21 @@ it('falls back to type_defaults for missing fields', function (): void {
         ->and($type->allowedChannels)->toBe(['push', 'email']);
 });
 
+it('fromConfig parses action_table_action', function (): void {
+    $type = NotificationType::fromConfig('demo.key', [
+        'action_resource' => 'tasks',
+        'action_record_key' => 'task_id',
+        'action_table_action' => 'view',
+    ]);
+
+    expect($type->actionTableAction)->toBe('view');
+});
+
+it('treats missing / empty action_table_action as null', function (): void {
+    expect(NotificationType::fromConfig('demo.key', [])->actionTableAction)->toBeNull()
+        ->and(NotificationType::fromConfig('demo.key', ['action_table_action' => ''])->actionTableAction)->toBeNull();
+});
+
 it('treats empty-string group / group_label as null', function (): void {
     $type = NotificationType::fromConfig('demo.key', [
         'group' => '',

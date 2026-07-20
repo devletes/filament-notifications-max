@@ -77,6 +77,13 @@ final class NotificationType
          * @var array<int, string>|null
          */
         public readonly ?array $panels,
+        /**
+         * Panel-relative resource slug the synthesized "view" action links
+         * to, paired with `$actionRecordKey` (the context key holding the
+         * record id). See also `$actionTableAction` below for resources
+         * whose records open in a list-page modal rather than on a detail
+         * page.
+         */
         public readonly ?string $actionResource,
         public readonly ?string $actionRecordKey,
         /**
@@ -129,6 +136,19 @@ final class NotificationType
          * while still routing through the dispatcher and registry.
          */
         public readonly ?string $notificationClass,
+        /**
+         * `action_table_action` (string, optional) — when set alongside
+         * `action_resource` + `action_record_key`, the notification
+         * deep-links to the resource INDEX and auto-opens this named table
+         * action for the record (Filament's `?tableAction=` +
+         * `?tableActionRecord=` query params) instead of routing to a
+         * `/{resource}/{id}` detail page. Typical value: `'view'`, for
+         * resources whose records open in a modal on the list page.
+         *
+         * Appended last with a default so existing positional construction
+         * sites keep compiling; `fromConfig()` sets it by name.
+         */
+        public readonly ?string $actionTableAction = null,
     ) {}
 
     /**
@@ -169,6 +189,9 @@ final class NotificationType
             adminControlled: (bool) ($config['admin_controlled'] ?? false),
             rateLimit: $config['rate_limit'] ?? null,
             notificationClass: $config['notification_class'] ?? null,
+            actionTableAction: isset($config['action_table_action']) && $config['action_table_action'] !== ''
+                ? (string) $config['action_table_action']
+                : null,
         );
     }
 

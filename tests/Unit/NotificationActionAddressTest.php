@@ -76,6 +76,49 @@ it('fromArray cleans up the panels list', function (): void {
         ->and($address->panels)->toBe(['admin', 'employee']);
 });
 
+it('round-trips table_action through toArray / fromArray', function (): void {
+    $address = new NotificationActionAddress(
+        resource: 'tasks',
+        recordId: 17,
+        panels: ['employee'],
+        preferredPanel: 'employee',
+        tenantSlug: 'acme',
+        tableAction: 'view',
+    );
+
+    $rehydrated = NotificationActionAddress::fromArray($address->toArray());
+
+    expect($address->toArray()['table_action'])->toBe('view')
+        ->and($rehydrated)->not->toBeNull()
+        ->and($rehydrated->tableAction)->toBe('view');
+});
+
+it('defaults table_action to null and tolerates its absence in fromArray', function (): void {
+    // Pre-feature stored rows have no `table_action` key at all — they
+    // must hydrate to the same null the constructor defaults to.
+    $address = NotificationActionAddress::fromArray([
+        'resource' => 'tasks',
+        'record_id' => 17,
+        'panels' => ['admin'],
+    ]);
+
+    expect($address)->not->toBeNull()
+        ->and($address->tableAction)->toBeNull()
+        ->and((new NotificationActionAddress('tasks', 17, ['admin']))->tableAction)->toBeNull();
+});
+
+it('fromArray coerces empty / non-string table_action to null', function (): void {
+    $base = [
+        'resource' => 'tasks',
+        'record_id' => 17,
+        'panels' => ['admin'],
+    ];
+
+    expect(NotificationActionAddress::fromArray([...$base, 'table_action' => ''])->tableAction)->toBeNull()
+        ->and(NotificationActionAddress::fromArray([...$base, 'table_action' => 42])->tableAction)->toBeNull()
+        ->and(NotificationActionAddress::fromArray([...$base, 'table_action' => ['view']])->tableAction)->toBeNull();
+});
+
 it('fromArray treats empty / non-string preferred_panel as null', function (): void {
     $address = NotificationActionAddress::fromArray([
         'resource' => 'tasks',

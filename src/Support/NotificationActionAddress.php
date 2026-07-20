@@ -15,6 +15,12 @@ final class NotificationActionAddress
 {
     /**
      * @param  array<int, string>  $panels
+     * @param  ?string  $tableAction  Table-action name to auto-open on the
+     *                                resource INDEX page instead of routing
+     *                                to the `/{resource}/{id}` detail page.
+     *                                Null (the default, and the shape of
+     *                                every pre-existing stored row) keeps
+     *                                the detail-page form.
      */
     public function __construct(
         public readonly string $resource,
@@ -22,6 +28,7 @@ final class NotificationActionAddress
         public readonly array $panels,
         public readonly ?string $preferredPanel = null,
         public readonly ?string $tenantSlug = null,
+        public readonly ?string $tableAction = null,
     ) {
         if ($resource === '') {
             throw new InvalidArgumentException('NotificationActionAddress requires a non-empty resource slug.');
@@ -79,12 +86,18 @@ final class NotificationActionAddress
             $tenantSlug = null;
         }
 
+        $tableAction = $payload['table_action'] ?? null;
+        if (! is_string($tableAction) || $tableAction === '') {
+            $tableAction = null;
+        }
+
         return new self(
             resource: $resource,
             recordId: $recordId,
             panels: $panels,
             preferredPanel: $preferred,
             tenantSlug: $tenantSlug,
+            tableAction: $tableAction,
         );
     }
 
@@ -99,6 +112,7 @@ final class NotificationActionAddress
             'panels' => $this->panels,
             'preferred_panel' => $this->preferredPanel,
             'tenant_slug' => $this->tenantSlug,
+            'table_action' => $this->tableAction,
         ];
     }
 }

@@ -15,9 +15,15 @@ use Filament\Facades\Filament;
  * Produces URLs like:  https://acme.example.com/admin/requests/42
  *                      https://acme.example.com/employee/tasks/17
  *
+ * With `$context['table_action']` set, the record segment moves into
+ * Filament's index-page query params instead:
+ *
+ *   https://acme.example.com/admin/requests?tableAction=view&tableActionRecord=42
+ *
  * Requires `$context['tenant_slug']` to be set at dispatch time. Falls back
  * to the path builder output if no tenant_slug is available (e.g. a console
- * notification with no tenant context).
+ * notification with no tenant context) — `$context` is passed through, so
+ * the fallback honours `table_action` too.
  */
 class SubdomainActionUrlBuilder implements ActionUrlBuilder, ProvidesActionBaseUrl
 {
@@ -45,6 +51,24 @@ class SubdomainActionUrlBuilder implements ActionUrlBuilder, ProvidesActionBaseU
         // Matches {@see PathActionUrlBuilder}.
         $panel = Filament::getPanel($panelId, isStrict: false);
         $panelPath = trim($panel?->getPath() ?? $panelId, '/');
+
+        $tableAction = $context['table_action'] ?? null;
+
+        if (is_string($tableAction) && $tableAction !== '') {
+            // Query-string form: target the resource INDEX and let
+            // Filament auto-mount the named table action for the record
+            // (`?tableAction=` / `?tableActionRecord=`). Keeps records on
+            // modal-on-list resources (no detail page) linkable — the
+            // path form below would 404 for them.
+            $path = ltrim(implode('/', array_filter([$panelPath, $resourceSlug])), '/');
+            $query = http_build_query([
+                'tableAction' => $tableAction,
+                'tableActionRecord' => (string) $recordId,
+            ]);
+            $url = $path === '' ? $base : "{$base}/{$path}";
+
+            return "{$url}?{$query}";
+        }
 
         $path = ltrim(
             implode('/', array_filter([$panelPath, $resourceSlug, (string) $recordId])),

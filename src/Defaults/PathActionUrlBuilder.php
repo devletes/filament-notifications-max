@@ -12,6 +12,11 @@ use Filament\Facades\Filament;
  *
  * Produces URLs like:  https://app.example.com/admin/requests/42
  *                      https://app.example.com/employee/tasks/17
+ *
+ * With `$context['table_action']` set, the record segment moves into
+ * Filament's index-page query params instead:
+ *
+ *   https://app.example.com/admin/requests?tableAction=view&tableActionRecord=42
  */
 class PathActionUrlBuilder implements ActionUrlBuilder
 {
@@ -28,6 +33,25 @@ class PathActionUrlBuilder implements ActionUrlBuilder
         $panelPath = trim($panelPath, '/');
 
         $base = rtrim(config('app.url') ?: '', '/');
+
+        $tableAction = $context['table_action'] ?? null;
+
+        if (is_string($tableAction) && $tableAction !== '') {
+            // Query-string form: target the resource INDEX and let
+            // Filament auto-mount the named table action for the record
+            // (`?tableAction=` / `?tableActionRecord=` — the params its
+            // list components bind via `#[Url]`). This is how records on
+            // resources WITHOUT a detail page (modal-on-list) stay
+            // linkable; the path form below would 404 for them.
+            $path = ltrim(implode('/', array_filter([$panelPath, $resourceSlug])), '/');
+            $query = http_build_query([
+                'tableAction' => $tableAction,
+                'tableActionRecord' => (string) $recordId,
+            ]);
+            $url = $path === '' ? $base : "{$base}/{$path}";
+
+            return "{$url}?{$query}";
+        }
 
         $path = ltrim(
             implode('/', array_filter([$panelPath, $resourceSlug, (string) $recordId])),

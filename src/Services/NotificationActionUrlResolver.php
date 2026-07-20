@@ -9,6 +9,7 @@ use Devletes\NotificationsMax\Support\NotificationActionAddress;
 use Filament\Facades\Filament;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Panel;
+use Filament\Resources\Resource;
 use Illuminate\Contracts\Auth\Authenticatable;
 
 /**
@@ -22,6 +23,13 @@ use Illuminate\Contracts\Auth\Authenticatable;
  *   5. null.
  *
  * Mail clicks have no `$fromPanelId` → step 2 catches the typical case.
+ *
+ * Beyond panel choice, {@see resolve()} also decides the URL *form*: the
+ * detail path (`/{resource}/{id}`) or Filament's index-page table-action
+ * query form (`/{resource}?tableAction=…&tableActionRecord=…`). An explicit
+ * `tableAction` on the address always wins; otherwise
+ * {@see detectTableAction()} inspects the chosen panel's resource to pick
+ * the form that actually routes.
  */
 class NotificationActionUrlResolver
 {
@@ -40,14 +48,98 @@ class NotificationActionUrlResolver
             return null;
         }
 
+        // Explicit address table action beats detection in BOTH
+        // directions: it can force the query form even when the resource
+        // has a detail page, and its name is used verbatim even when
+        // detection would have injected 'view'.
+        $tableAction = $address->tableAction ?? $this->detectTableAction($panelId, $address);
+
         return $this->urls->build(
             panelId: $panelId,
             resourceSlug: $address->resource,
             recordId: $address->recordId,
-            context: $address->tenantSlug !== null
-                ? ['tenant_slug' => $address->tenantSlug]
-                : [],
+            context: array_filter([
+                'tenant_slug' => $address->tenantSlug,
+                'table_action' => $tableAction,
+            ], static fn ($v): bool => $v !== null && $v !== ''),
         );
+    }
+
+    /**
+     * Decide, for an address WITHOUT an explicit table action, whether the
+     * URL must use the index-page query form because the target resource
+     * has no detail page.
+     *
+     * Many resources never register a 'view' page — their records open in
+     * a `ViewAction` modal on the list page. For those, the detail path
+     * `/{panel}/{resource}/{id}` isn't a registered route and 404s. Rather
+     * than making every host declare `action_table_action` per type, this
+     * looks the resource up in the resolved panel and inspects its
+     * registered pages: no 'view' page → inject `'view'` so the URL opens
+     * the list page's view modal; 'view' page present → keep the detail
+     * path exactly as today.
+     *
+     * Why detect at CLICK time rather than dispatch time: this resolver
+     * runs inside the `/go/` redirect request, where every panel (and its
+     * resources) is registered — so the lookup is authoritative. It also
+     * means every ALREADY-STORED notification row pointing at a modal-only
+     * resource is healed on its next click, with no re-dispatch; a
+     * dispatch-time decision would be baked into the row and go stale the
+     * moment a resource gains or loses its view page. Dispatch can also
+     * happen where panels aren't reliably registered (queue workers,
+     * artisan), which would make dispatch-time detection flaky on top of
+     * stale.
+     *
+     * Fails open BY DESIGN: any lookup failure — panel not registered
+     * (CLI resolution outside a booted Filament app), resource slug not
+     * found on the panel, or anything a resource class throws while
+     * reporting its slug/pages — returns null, i.e. today's detail-path
+     * behavior. URL resolution must never break because this heuristic
+     * couldn't run. Gated by `notifications-max.auto_table_action`
+     * (default on).
+     */
+    protected function detectTableAction(string $panelId, NotificationActionAddress $address): ?string
+    {
+        if (! config('notifications-max.auto_table_action', true)) {
+            return null;
+        }
+
+        try {
+            $panel = $this->panelFor($panelId);
+
+            if ($panel === null) {
+                return null;
+            }
+
+            $slug = trim($address->resource, '/');
+
+            foreach ($panel->getResources() as $resourceClass) {
+                // Covers autoloadability AND the Resource contract in one
+                // check, so a stray registration entry is skipped rather
+                // than aborting detection for the remaining resources.
+                if (! is_string($resourceClass) || ! is_subclass_of($resourceClass, Resource::class)) {
+                    continue;
+                }
+
+                // Slugs are compared as trimmed literals — the address's
+                // `resource` is authored as (or synthesized from) the same
+                // slug string the builders splice into the path, so there
+                // is no normalisation beyond stray-slash tolerance.
+                if (trim((string) $resourceClass::getSlug($panel), '/') !== $slug) {
+                    continue;
+                }
+
+                // 'view' is both Filament's conventional route name for
+                // the detail page AND the default name of the table
+                // `ViewAction` that replaces it on modal-on-list
+                // resources — hence the same literal on both sides.
+                return $resourceClass::hasPage('view') ? null : 'view';
+            }
+        } catch (\Throwable) {
+            // Fall through — resolution must never throw because of this.
+        }
+
+        return null;
     }
 
     public function resolvePanel(

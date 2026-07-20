@@ -40,6 +40,20 @@ beforeEach(function (): void {
             'default_channels' => ['push'],
             'allowed_channels' => ['push', 'email'],
         ],
+        // Same registry shape plus `action_table_action` — the record
+        // opens in a modal on the list page, so the address must carry
+        // the table-action name for the click-time query form.
+        'tasks.modal' => [
+            'title' => 'New task',
+            'body' => 'For you',
+            'panels' => ['employee'],
+            'target_panel' => 'employee',
+            'action_resource' => 'tasks',
+            'action_record_key' => 'task_id',
+            'action_table_action' => 'view',
+            'default_channels' => ['push'],
+            'allowed_channels' => ['push', 'email'],
+        ],
         // Polymorphic type — the dispatcher passes a fully-formed address
         // via context['action'] (mirrors how HRMS will handle approvals).
         'polymorphic.event' => [
@@ -239,4 +253,74 @@ it('buildFilamentPayload omits data.action when no address can be synthesized', 
     $payload = $n->buildFilamentPayload();
 
     expect($payload)->not->toHaveKey('action');
+});
+
+it('carries the registry action_table_action onto the synthesized address', function (): void {
+    $n = new GenericNotification('tasks.modal', ['task_id' => 42]);
+
+    $address = $n->buildActionAddress($n->resolveType());
+
+    expect($address)->toBeInstanceOf(NotificationActionAddress::class)
+        ->and($address->tableAction)->toBe('view');
+});
+
+it('leaves tableAction null for types without action_table_action', function (): void {
+    $n = new GenericNotification('tasks.assigned', ['task_id' => 42]);
+
+    expect($n->buildActionAddress($n->resolveType())->tableAction)->toBeNull();
+});
+
+it('hydrates table_action from context[action] for polymorphic types', function (): void {
+    $n = new GenericNotification('polymorphic.event', [
+        'action' => [
+            'resource' => 'leave-requests',
+            'record_id' => 'req-99',
+            'panels' => ['admin'],
+            'table_action' => 'view',
+        ],
+    ]);
+
+    expect($n->buildActionAddress($n->resolveType())->tableAction)->toBe('view');
+});
+
+it('persists table_action into data.action and keeps the /go/ route as the action URL', function (): void {
+    $n = new GenericNotification('tasks.modal', [
+        'task_id' => 42,
+        'tenant_slug' => 'acme',
+    ]);
+    $n->id = (string) Str::uuid();
+
+    $payload = $n->buildFilamentPayload();
+
+    // The table action rides on the persisted address (that's all the
+    // redirect controller sees at click time)…
+    expect($payload['action'])->toMatchArray([
+        'resource' => 'tasks',
+        'record_id' => 42,
+        'table_action' => 'view',
+    ]);
+
+    // …while the button still points at the /go/ hop — tenant pinning
+    // and mark-read-on-click are unchanged by this feature.
+    expect($n->buildLegacyActionUrl($n->resolveType()))
+        ->toBe("https://app.example.test/notifications-max/go/{$n->id}");
+});
+
+it('direct-URL fallback emits the query form for table-action types when the redirect route is unregistered', function (): void {
+    // Same route-unregistration trick as the fallback test above — this
+    // is the off-/go/ path, which must match what the hop would produce.
+    \Illuminate\Support\Facades\Route::getRoutes()->refreshNameLookups();
+    $routes = \Illuminate\Support\Facades\Route::getRoutes();
+    $reflection = new ReflectionClass($routes);
+    $namedProp = $reflection->getProperty('nameList');
+    $namedProp->setAccessible(true);
+    $named = $namedProp->getValue($routes);
+    unset($named['notifications-max.go']);
+    $namedProp->setValue($routes, $named);
+
+    $n = new GenericNotification('tasks.modal', ['task_id' => 42]);
+    $n->id = (string) Str::uuid();
+
+    expect($n->buildLegacyActionUrl($n->resolveType()))
+        ->toBe('https://app.example.test/employee/tasks?tableAction=view&tableActionRecord=42');
 });

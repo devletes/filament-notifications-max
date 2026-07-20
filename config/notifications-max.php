@@ -764,4 +764,35 @@ return [
         'mark_read' => true,
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Automatic Table-Action Detection
+    |--------------------------------------------------------------------------
+    |
+    | Some resources have no detail (view) page — their records open in a
+    | modal on the list page. For those, the default deep-link form
+    | `/{panel}/{resource}/{id}` isn't a registered route and 404s. When
+    | this flag is on, click-time URL resolution looks the target resource
+    | up in the resolved panel and, if it registers no 'view' page, links
+    | to the resource index with Filament's auto-mount query params
+    | (`?tableAction=view&tableActionRecord={id}`) so the list page opens
+    | the record's view modal instead.
+    |
+    | Detection only fills a gap: a `table_action` declared explicitly —
+    | per type via `action_table_action`, or per dispatch inside
+    | `context['action']` — always wins, in either direction. Resources
+    | WITH a view page keep the detail-path form untouched, and any
+    | detection failure (panel not registered, slug not found, resolution
+    | outside a booted Filament app) falls back to the detail path too, so
+    | flipping this off — or detection never matching — reproduces the
+    | pre-feature URLs byte for byte.
+    |
+    | Runs at click time (inside the /go/ redirect), not at dispatch, so
+    | already-stored notification rows pointing at modal-only resources
+    | heal on their next click without re-dispatch.
+    |
+    */
+
+    'auto_table_action' => true,
+
 ];

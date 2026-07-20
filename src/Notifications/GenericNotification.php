@@ -453,11 +453,22 @@ class GenericNotification extends Notification
             return null;
         }
 
+        // Direct-builder fallback (redirect route absent). Feed the type's
+        // table action into the builder context so this off-`/go/` path
+        // emits the same query-string form the redirect hop would have. A
+        // `table_action` already present in the dispatch context wins —
+        // same explicit-beats-registry rule as everywhere else.
+        $context = $this->context;
+
+        if ($type->actionTableAction !== null && ! array_key_exists('table_action', $context)) {
+            $context['table_action'] = $type->actionTableAction;
+        }
+
         return app(ActionUrlBuilder::class)->build(
             panelId: $type->targetPanel,
             resourceSlug: $type->actionResource,
             recordId: $recordId,
-            context: $this->context,
+            context: $context,
         );
     }
 
@@ -501,6 +512,7 @@ class GenericNotification extends Notification
                 panels: $panels,
                 preferredPanel: $type->targetPanel !== '' ? $type->targetPanel : null,
                 tenantSlug: is_string($tenantSlug) && $tenantSlug !== '' ? $tenantSlug : null,
+                tableAction: $type->actionTableAction,
             );
         } catch (Throwable) {
             return null;
