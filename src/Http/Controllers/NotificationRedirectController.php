@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Devletes\NotificationsMax\Http\Controllers;
 
 use Devletes\NotificationsMax\Services\NotificationActionUrlResolver;
+use Devletes\NotificationsMax\Support\ActionUrlSchemeNormalizer;
 use Devletes\NotificationsMax\Support\NotificationActionAddress;
 use Filament\Facades\Filament;
 use Filament\Panel;
@@ -23,6 +24,10 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  * before the redirect (so a Slack/email click clears the in-app bell), gated
  * by `notifications-max.redirect_route.mark_read`. `markAsRead()` is a no-op
  * on an already-read row, so re-clicks don't churn the timestamp.
+ *
+ * The resolved target's scheme is normalized against the current request
+ * ({@see ActionUrlSchemeNormalizer}) so legacy rows whose baked URL inherited
+ * an `http://` APP_URL don't bounce an https visitor back onto http.
  */
 class NotificationRedirectController
 {
@@ -51,7 +56,7 @@ class NotificationRedirectController
         $url = $this->resolveUrl($row, $resolver, $request, $user)
             ?? config('app.url', '/');
 
-        return redirect()->away($url);
+        return redirect()->away(ActionUrlSchemeNormalizer::normalize($url, $request));
     }
 
     protected function resolveUrl(

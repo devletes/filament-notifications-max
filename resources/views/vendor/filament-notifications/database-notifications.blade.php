@@ -7,13 +7,18 @@
       - Hides the stock "Clear" action whenever the NotificationCenter page is
         registered — deletion lives in the center to keep a single destructive
         surface. When the center isn't enabled, stock behaviour is preserved.
+      - Normalizes each notification's action-URL scheme at render time
+        (ActionUrlSchemeNormalizer): legacy rows baked `http://` URLs whose
+        wire:navigate fetch browsers hard-block as mixed content under SPA
+        mode. See the normalizer's class docblock for the full rationale.
 
     The rest of the template is verbatim from upstream. If a future Filament
     release changes this file, re-sync the non-header portion and keep the
-    two deltas above intact. The namespace prepend is registered in
+    three deltas above intact. The namespace prepend is registered in
     NotificationsMaxServiceProvider::packageBooted().
 --}}
 @php
+    use Devletes\NotificationsMax\Support\ActionUrlSchemeNormalizer;
     use Filament\Support\Enums\Alignment;
     use Filament\Support\View\Components\BadgeComponent;
     use Illuminate\View\ComponentAttributeBag;
@@ -116,7 +121,7 @@
                         'fi-no-notification-unread-ctn' => $notification->unread(),
                     ])
                 >
-                    {{ $this->getNotification($notification)->inline() }}
+                    {{ ActionUrlSchemeNormalizer::normalizeNotification($this->getNotification($notification), request())->inline() }}
                 </div>
             @endforeach
 

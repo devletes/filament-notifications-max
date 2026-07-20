@@ -92,6 +92,61 @@ it('uses the baked url for legacy rows that lack a structured action payload', f
         ->assertRedirect('https://elsewhere.example.test/tasks/99');
 });
 
+it('upgrades a legacy http-baked url to https when the click arrives over https', function (): void {
+    // Rows written from queue context inherited APP_URL's http scheme at
+    // bake time. The click itself arrives over https (absolute request URL —
+    // a relative $this->get() would resolve against the console-captured
+    // http://localhost base and never register as secure), so the redirect
+    // target is healed to the request's scheme.
+    $user = User::query()->create(['name' => 'Baked', 'email' => 'baked@example.test']);
+
+    $row = makeNotificationRow($user, [
+        'url' => 'http://app.example.test/tasks/99',
+    ]);
+
+    $this->actingAs($user)
+        ->get("https://app.example.test/notifications-max/go/{$row->id}")
+        ->assertRedirect('https://app.example.test/tasks/99');
+});
+
+it('upgrades an http-baked url on a subdomain of the app host', function (): void {
+    $user = User::query()->create(['name' => 'Tenant', 'email' => 'tenant@example.test']);
+
+    $row = makeNotificationRow($user, [
+        'url' => 'http://acme.app.example.test/tasks/7',
+    ]);
+
+    $this->actingAs($user)
+        ->get("https://app.example.test/notifications-max/go/{$row->id}")
+        ->assertRedirect('https://acme.app.example.test/tasks/7');
+});
+
+it('leaves an external http url untouched at redirect time', function (): void {
+    // Secure click, external target — the one combination where a naive
+    // rewrite would corrupt the link.
+    $user = User::query()->create(['name' => 'External', 'email' => 'ext@example.test']);
+
+    $row = makeNotificationRow($user, [
+        'url' => 'http://elsewhere.example.test/tasks/99',
+    ]);
+
+    $this->actingAs($user)
+        ->get("https://app.example.test/notifications-max/go/{$row->id}")
+        ->assertRedirect('http://elsewhere.example.test/tasks/99');
+});
+
+it('does not upgrade the baked url when the click itself is over http', function (): void {
+    $user = User::query()->create(['name' => 'Insecure', 'email' => 'insecure@example.test']);
+
+    $row = makeNotificationRow($user, [
+        'url' => 'http://app.example.test/tasks/99',
+    ]);
+
+    $this->actingAs($user)
+        ->get("http://app.example.test/notifications-max/go/{$row->id}")
+        ->assertRedirect('http://app.example.test/tasks/99');
+});
+
 it('returns 404 for a notification belonging to a different user', function (): void {
     $owner = User::query()->create(['name' => 'Owner', 'email' => 'o@example.test']);
     $stranger = User::query()->create(['name' => 'Stranger', 'email' => 's@example.test']);
