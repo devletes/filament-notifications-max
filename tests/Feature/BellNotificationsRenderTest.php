@@ -91,5 +91,9 @@ it('renders a stored http action URL as https under a secure request', function 
         ->get('https://app.example.test/bell-render-test')
         ->assertOk()
         ->assertSee('https://app.example.test/admin/tasks/17', escape: false)
-        ->assertDontSee('http://app.example.test/admin/tasks/17', escape: false);
+        ->assertDontSee('http://app.example.test/admin/tasks/17', escape: false)
+        // Link clicks dismiss the slide-over (capture phase — wire:navigate
+        // stops propagation, so a bubble listener would never fire).
+        ->assertSee('x-on:click.capture', escape: false)
+        ->assertSee("\$dispatch('close-modal', { id: 'database-notifications' })", escape: false);
 });

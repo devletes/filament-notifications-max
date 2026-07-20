@@ -11,10 +11,14 @@
         (ActionUrlSchemeNormalizer): legacy rows baked `http://` URLs whose
         wire:navigate fetch browsers hard-block as mixed content under SPA
         mode. See the normalizer's class docblock for the full rationale.
+      - Closes the slide-over when a navigation link inside it is clicked
+        (delegated to `a[href]` only, so mark-as-read/archive buttons keep it
+        open). Under SPA mode the modal survives the wire:navigate body swap,
+        so without this the app navigates BEHIND the open panel.
 
     The rest of the template is verbatim from upstream. If a future Filament
     release changes this file, re-sync the non-header portion and keep the
-    three deltas above intact. The namespace prepend is registered in
+    four deltas above intact. The namespace prepend is registered in
     NotificationsMaxServiceProvider::packageBooted().
 --}}
 @php
@@ -91,7 +95,12 @@
                         @endif
                     </h2>
 
-                    <div class="fi-ac">
+                    {{-- .capture: wire:navigate's own click handler stops
+                         propagation, so a bubble-phase listener never fires. --}}
+                    <div
+                        class="fi-ac"
+                        x-on:click.capture="$event.target.closest('a[href]') && $dispatch('close-modal', { id: 'database-notifications' })"
+                    >
                         @if ($unreadNotificationsCount && $this->markAllNotificationsAsReadAction?->isVisible())
                             {{ $this->markAllNotificationsAsReadAction }}
                         @endif
@@ -116,6 +125,7 @@
 
             @foreach ($notifications as $notification)
                 <div
+                    x-on:click.capture="$event.target.closest('a[href]') && $dispatch('close-modal', { id: 'database-notifications' })"
                     @class([
                         'fi-no-notification-read-ctn' => ! $notification->unread(),
                         'fi-no-notification-unread-ctn' => $notification->unread(),
