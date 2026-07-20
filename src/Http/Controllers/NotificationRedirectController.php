@@ -17,13 +17,23 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /**
  * Resolves a notification's action URL at click time and 302s to the right
- * panel. Stranger's id returns 404 (not 403) to avoid leaking existence.
- * Falls back to baked `data.url` / `data.action_url` for legacy rows.
+ * panel. Falls back to baked `data.url` / `data.action_url` for legacy rows.
  *
  * Clicking the link is treated as acknowledgement: the row is marked read
  * before the redirect (so a Slack/email click clears the in-app bell), gated
  * by `notifications-max.redirect_route.mark_read`. `markAsRead()` is a no-op
  * on an already-read row, so re-clicks don't churn the timestamp.
+ *
+ * Ownership softens rather than gates: an authenticated user who does NOT
+ * own the row is still redirected — go links travel beyond their recipient
+ * by design (a shared Slack channel renders ONE recipient's link for the
+ * whole room; emails get forwarded; admins click while impersonating), the
+ * id is an unguessable UUID so this is not an enumeration surface, and the
+ * TARGET enforces the real authorization (panel access + policies).
+ * Non-owners never touch the row's read state, and when their click can't
+ * resolve a URL they get a 404 (not the app-root fallback) so a stray id
+ * still leaks nothing. Guests never reach here — the route runs behind
+ * `auth`, so they bounce through login with the go URL as the intended URL.
  *
  * The resolved target's scheme is normalized against the current request
  * ({@see ActionUrlSchemeNormalizer}) so legacy rows whose baked URL inherited
@@ -44,17 +54,31 @@ class NotificationRedirectController
 
         /** @var DatabaseNotification|null $row */
         $row = $user->notifications()->whereKey($notification)->first();
+        $isOwner = $row !== null;
+
+        if (! $isOwner) {
+            $row = DatabaseNotification::query()->whereKey($notification)->first();
+        }
 
         if ($row === null) {
             throw new NotFoundHttpException();
         }
 
-        if (config('notifications-max.redirect_route.mark_read', true)) {
+        // Acknowledgement belongs to the OWNER: a colleague following a
+        // shared link must not clear someone else's bell.
+        if ($isOwner && config('notifications-max.redirect_route.mark_read', true)) {
             $row->markAsRead();
         }
 
-        $url = $this->resolveUrl($row, $resolver, $request, $user)
-            ?? config('app.url', '/');
+        $url = $this->resolveUrl($row, $resolver, $request, $user);
+
+        if ($url === null) {
+            if (! $isOwner) {
+                throw new NotFoundHttpException();
+            }
+
+            $url = config('app.url', '/');
+        }
 
         return redirect()->away(ActionUrlSchemeNormalizer::normalize($url, $request));
     }

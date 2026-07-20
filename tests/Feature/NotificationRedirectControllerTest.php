@@ -147,9 +147,97 @@ it('does not upgrade the baked url when the click itself is over http', function
         ->assertRedirect('http://app.example.test/tasks/99');
 });
 
-it('returns 404 for a notification belonging to a different user', function (): void {
+it('redirects to the table-action query form when the stored action carries table_action', function (): void {
+    $user = User::query()->create(['name' => 'Modal', 'email' => 'modal@example.test']);
+
+    $row = makeNotificationRow($user, [
+        'action' => [
+            'resource' => 'tasks',
+            'record_id' => 17,
+            'panels' => ['employee'],
+            'preferred_panel' => 'employee',
+            'table_action' => 'view',
+        ],
+    ]);
+
+    expect($row->read_at)->toBeNull();
+
+    $this->actingAs($user)
+        ->get("/notifications-max/go/{$row->id}")
+        ->assertRedirect('https://app.example.test/employee/tasks?tableAction=view&tableActionRecord=17');
+
+    // The hop still acknowledges the click — only the URL form changed.
+    expect($row->fresh()->read_at)->not->toBeNull();
+});
+
+it('pins the table-action query form to the tenant subdomain with the subdomain builder', function (): void {
+    // Mirror a subdomain-tenancy host: the bound builder decides the
+    // redirect target's host, and the query form must ride on the
+    // tenant-pinned base exactly like the path form does.
+    $this->app->bind(
+        \Devletes\NotificationsMax\Contracts\ActionUrlBuilder::class,
+        fn () => new \Devletes\NotificationsMax\Defaults\SubdomainActionUrlBuilder(
+            new \Devletes\NotificationsMax\Defaults\PathActionUrlBuilder,
+        ),
+    );
+
+    $user = User::query()->create(['name' => 'Pinned', 'email' => 'pinned@example.test']);
+
+    $row = makeNotificationRow($user, [
+        'action' => [
+            'resource' => 'tasks',
+            'record_id' => 17,
+            'panels' => ['employee'],
+            'preferred_panel' => 'employee',
+            'tenant_slug' => 'acme',
+            'table_action' => 'view',
+        ],
+    ]);
+
+    $this->actingAs($user)
+        ->get("/notifications-max/go/{$row->id}")
+        ->assertRedirect('https://acme.app.example.test/employee/tasks?tableAction=view&tableActionRecord=17');
+});
+
+it('auto-detects the table-action form for a modal-only resource on a stored row without table_action', function (): void {
+    // Register the employee panel WITH the modal-only stub resource so
+    // click-time detection has something to find. Registered straight on
+    // the PanelRegistry singleton — the facade's registerPanel() only
+    // queues a resolving() callback that never re-fires for the already-
+    // resolved singleton (which is also why the beforeEach panels above
+    // are invisible in-request; see the referer note at the bottom of
+    // this file). The stored row predates the feature (no `table_action`
+    // key) — detection heals it on click, which is the whole point of
+    // resolving at click time.
+    app(\Filament\PanelRegistry::class)->register(
+        Panel::make()
+            ->id('employee')
+            ->path('employee')
+            ->resources([\Devletes\NotificationsMax\Tests\Stubs\Resources\ModalTaskResource::class]),
+    );
+
+    $user = User::query()->create(['name' => 'Healed', 'email' => 'healed@example.test']);
+
+    $row = makeNotificationRow($user, [
+        'action' => [
+            'resource' => 'tasks',
+            'record_id' => 17,
+            'panels' => ['employee'],
+            'preferred_panel' => 'employee',
+        ],
+    ]);
+
+    $this->actingAs($user)
+        ->get("/notifications-max/go/{$row->id}")
+        ->assertRedirect('https://app.example.test/employee/tasks?tableAction=view&tableActionRecord=17');
+});
+
+it('redirects an authenticated non-owner without touching read state', function (): void {
+    // Go links travel beyond their recipient (shared Slack channels render
+    // ONE recipient's link for the whole room; emails get forwarded), so a
+    // colleague's click passes through — the target enforces authorization.
     $owner = User::query()->create(['name' => 'Owner', 'email' => 'o@example.test']);
-    $stranger = User::query()->create(['name' => 'Stranger', 'email' => 's@example.test']);
+    $colleague = User::query()->create(['name' => 'Colleague', 'email' => 'c@example.test']);
 
     $row = makeNotificationRow($owner, [
         'action' => [
@@ -158,6 +246,24 @@ it('returns 404 for a notification belonging to a different user', function (): 
             'panels' => ['admin'],
             'preferred_panel' => 'admin',
         ],
+    ]);
+
+    $this->actingAs($colleague)
+        ->get("/notifications-max/go/{$row->id}")
+        ->assertRedirect('https://app.example.test/admin/tasks/17');
+
+    // The owner's bell is untouched — acknowledgement is theirs alone.
+    expect($row->fresh()->read_at)->toBeNull();
+});
+
+it('returns 404 to a non-owner when no URL can be resolved', function (): void {
+    // Owners fall back to app.url; a stray id in a stranger's hands should
+    // surface nothing at all.
+    $owner = User::query()->create(['name' => 'Owner2', 'email' => 'o2@example.test']);
+    $stranger = User::query()->create(['name' => 'Stranger', 'email' => 's@example.test']);
+
+    $row = makeNotificationRow($owner, [
+        'body' => 'no action, no baked url',
     ]);
 
     $this->actingAs($stranger)
