@@ -6,6 +6,7 @@ namespace Devletes\NotificationsMax;
 
 use BackedEnum;
 use Composer\InstalledVersions;
+use Devletes\NotificationsMax\Filament\Livewire\BellNotifications;
 use Devletes\NotificationsMax\Filament\Pages\NotificationCenter;
 use Devletes\NotificationsMax\Filament\Pages\NotificationPreferences;
 use Devletes\NotificationsMax\Filament\Pages\NotificationSettings;
@@ -84,7 +85,16 @@ class NotificationsMaxPlugin implements Plugin
         // plugin registered always gets them. Disabling notifications while
         // installing a notifications plugin is counter-intuitive; the opt-out
         // toggle that used to live here was removed accordingly.
-        $panel->databaseNotifications(condition: true);
+        //
+        // Point the panel at our bell component (which caps the dropdown at
+        // `notifications-max.bell.limit` and drops pagination). The panel
+        // resolves its bell by this class directly, so setting it here — the
+        // per-panel plugin hook — is what actually takes effect; overriding
+        // the `database-notifications` Livewire alias would not.
+        $panel->databaseNotifications(
+            condition: true,
+            livewireComponent: BellNotifications::class,
+        );
 
         // User preferences page registers when ->preferencesPage() is set.
         // The page's `shouldRegisterNavigation()` returns false so it

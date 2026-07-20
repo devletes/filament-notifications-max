@@ -383,6 +383,24 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Bell Dropdown
+    |--------------------------------------------------------------------------
+    |
+    | The bell-panel dropdown shows only the most recent notifications and
+    | never paginates — the full backlog lives one click away behind the
+    | "View all" link (the NotificationCenter page). `limit` caps how many
+    | rows the dropdown renders; keep it small enough to scan at a glance.
+    |
+    | A non-positive value falls back to the built-in default of 20.
+    |
+    */
+
+    'bell' => [
+        'limit' => 20,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Notification Center Page
     |--------------------------------------------------------------------------
     |
